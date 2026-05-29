@@ -1,0 +1,12 @@
+{
+  "skills": [
+    {
+      "id": "rebalance",
+      "name": "再平衡",
+      "description": "要求输出组合再平衡方案。",
+      "keywords": ["再平衡", "仓位", "配置"],
+      "instruction": "额外输出目标仓位百分比和调仓顺序。",
+      "active": true
+    }
+  ]
+}

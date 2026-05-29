@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>基金投资助手</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main id="app" class="mx-auto max-w-[1520px] px-4 py-6" v-cloak>
+      <header class="hero-panel mb-5">
+        <div>
+          <p class="mb-2 text-sm font-medium text-teal-700">DeepSeek + 多 Agent 工作台</p>
+          <h1 class="text-3xl font-semibold tracking-tight">基金投资助手</h1>
+          <p class="mt-2 text-sm text-slate-600">持仓、实时行情、趋势图表、天天基金热点和明确投资建议集中管理</p>
+        </div>
+        <div v-if="toast.text" :class="['toast', toast.ok ? 'toast-ok' : 'toast-bad']">{{ toast.text }}</div>
+      </header>
+
+      <nav class="nav-bar mb-5 flex flex-wrap gap-2">
+        <button v-for="tab in tabs" :key="tab.id" :class="['tab-btn', {active: activeTab === tab.id}]" @click="activeTab = tab.id">{{ tab.name }}</button>
+      </nav>
+
+      <section v-show="activeTab === 'portfolio'">
+        <div class="mb-4 grid gap-3 md:grid-cols-4">
+          <div class="metric-card"><span>总成本</span><strong>{{ money(summary.cost) }}</strong></div>
+          <div class="metric-card"><span>当前市值</span><strong>{{ money(summary.value) }}</strong></div>
+          <div class="metric-card"><span>浮动盈亏</span><strong :class="gainClass(summary.pnl)">{{ money(summary.pnl) }}</strong></div>
+          <div class="metric-card"><span>收益率</span><strong :class="gainClass(summary.rate)">{{ pct(summary.rate) }}</strong></div>
+        </div>
+        <div class="mb-3 flex flex-wrap gap-2">
+          <button class="btn-primary" @click="openHolding()">添加持仓</button>
+          <button class="btn-secondary" @click="refreshQuotes()">刷新行情并重算份额</button>
+          <button class="btn-secondary" @click="savePortfolio()">保存持仓</button>
+        </div>
+        <div class="table-shell">
+          <table class="holdings-table text-sm">
+            <thead class="bg-slate-100 text-left text-slate-600">
+              <tr>
+                <th class="th">代码</th><th class="th">名称</th><th class="th">成本</th><th class="th">份额</th>
+                <th class="th">净值</th><th class="th">涨跌幅</th><th class="th">更新时间</th><th class="th">市值</th><th class="th">盈亏</th><th class="th">收益率</th><th class="th">备注</th><th class="th action-col">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(h, i) in holdingsView" :key="h.id">
+                <td class="td font-semibold">{{ h.code }}</td>
+                <td class="td">{{ h.name || h.quote?.name || '-' }}</td>
+                <td class="td">{{ money(h.cost) }}</td>
+                <td class="td">{{ number(h.shares, 2) }}</td>
+                <td class="td">{{ h.quote?.nav ? number(h.quote.nav, 4) : '-' }}</td>
+                <td class="td" :class="gainClass(h.quote?.percent)">{{ h.quote?.percent === undefined ? '-' : pct(h.quote.percent) }}</td>
+                <td class="td text-slate-500">{{ h.quote?.update_time || '-' }}</td>
+                <td class="td">{{ money(h.marketValue) }}</td>
+                <td class="td" :class="gainClass(h.pnl)">{{ money(h.pnl) }}</td>
+                <td class="td" :class="gainClass(h.rate)">{{ pct(h.rate) }}</td>
+                <td class="td">{{ h.note || '-' }}</td>
+                <td class="td action-cell">
+                  <button class="mini-btn" @click="openHolding(i)">编辑</button>
+                  <button class="mini-btn" @click="refreshQuotes([h.code])">刷新</button>
+                  <button class="btn-danger" @click="deleteHolding(i)">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section v-show="activeTab === 'insights'">
+        <div class="mb-3 flex flex-wrap gap-2">
+          <button class="btn-primary" @click="loadInsights()">刷新洞察</button>
+          <button class="btn-secondary" @click="loadHotFunds()">刷新天天基金热点</button>
+        </div>
+        <div class="grid gap-4 xl:grid-cols-[1.2fr_.8fr]">
+          <div class="panel-card"><h2 class="panel-title">组合盈亏曲线</h2><canvas id="pnlChart"></canvas></div>
+          <div class="panel-card"><h2 class="panel-title">资产分布</h2><canvas id="allocationChart"></canvas></div>
+          <div class="panel-card xl:col-span-2"><h2 class="panel-title">持仓基金近 90 日净值走势</h2><canvas id="fundTrendChart"></canvas></div>
+          <div class="panel-card xl:col-span-2">
+            <h2 class="panel-title">持仓推荐</h2>
+            <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <article v-for="r in recommendations" :key="r.code" class="rec-card">
+                <div class="mb-2 flex items-center justify-between gap-2"><strong>{{ r.name || r.code }}</strong><span class="rec-action">{{ r.action }}</span></div>
+                <div class="text-xs text-slate-500">{{ r.code }} · 评分 {{ number(r.score, 1) }}</div>
+                <p class="mt-3 text-sm leading-6 text-slate-700">{{ r.reason }}</p>
+              </article>
+            </div>
+          </div>
+          <div class="panel-card xl:col-span-2">
+            <h2 class="panel-title">天天基金实时热点</h2>
+            <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <article v-for="f in hotFunds" :key="f.code" class="hot-card">
+                <div class="flex items-start justify-between gap-2"><strong>{{ f.name }}</strong><span class="text-xs text-slate-400">{{ f.code }}</span></div>
+                <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  <div><span>日涨跌</span><b :class="gainClass(f.day_return)">{{ pct(f.day_return) }}</b></div>
+                  <div><span>近1月</span><b :class="gainClass(f.month_return)">{{ valueOrDash(f.month_return, '%') }}</b></div>
+                  <div><span>近6月</span><b :class="gainClass(f.half_year_return)">{{ valueOrDash(f.half_year_return, '%') }}</b></div>
+                  <div><span>近1年</span><b :class="gainClass(f.year_return)">{{ valueOrDash(f.year_return, '%') }}</b></div>
+                </div>
+                <p class="mt-3 text-xs leading-5 text-slate-500">{{ f.reason }}</p>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section v-show="activeTab === 'chat'">
+        <div class="grid gap-4 lg:grid-cols-[320px_1fr]">
+          <aside class="panel-card">
+            <label class="label">模式</label>
+            <select v-model="chat.mode" class="input"><option value="single">单 Agent</option><option value="collab">协作模式</option></select>
+            <label class="label mt-3">当前 Agent</label>
+            <select v-model="chat.agent_id" class="input"><option v-for="a in activeAgents" :value="a.id">{{ a.name }}</option></select>
+            <div class="mt-3">
+              <div class="mb-2 text-sm font-medium">协作 Agent</div>
+              <label v-for="a in activeAgents" class="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" :value="a.id" v-model="chat.agent_ids">{{ a.name }}</label>
+            </div>
+            <div class="mt-4">
+              <div class="mb-2 text-sm font-medium">技能模板</div>
+              <label v-for="s in activeSkills" class="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" :value="s.id" v-model="chat.skill_ids">{{ s.name }}</label>
+            </div>
+          </aside>
+          <div class="panel-card p-0">
+            <div class="chat-log">
+              <div v-for="m in messages" :class="['bubble', m.role]">{{ m.text }}</div>
+            </div>
+            <div class="border-t p-3">
+              <textarea v-model="chat.message" class="input min-h-24" placeholder="例如：请根据当前持仓给出本周调仓建议"></textarea>
+              <div class="mt-2 flex justify-end"><button class="btn-primary" @click="sendChat">发送</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section v-show="activeTab === 'agents'">
+        <div class="mb-3 flex gap-2"><button class="btn-primary" @click="addAgent">新增 Agent</button><button class="btn-secondary" @click="saveAgents">保存 Agent</button></div>
+        <div class="grid gap-3">
+          <article v-for="(a, i) in agents" class="config-card">
+            <div class="grid gap-3 md:grid-cols-2">
+              <div><label class="label">名称</label><input class="input" v-model="a.name"></div>
+              <div><label class="label">描述</label><input class="input" v-model="a.description"></div>
+              <div><label class="label">Temperature</label><input class="input" type="number" step="0.05" v-model.number="a.temperature"></div>
+              <div><label class="label">Max Tokens</label><input class="input" type="number" v-model.number="a.max_tokens"></div>
+            </div>
+            <label class="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" v-model="a.active">激活</label>
+            <label class="label mt-3">System Prompt</label><textarea class="input min-h-32" v-model="a.system_prompt"></textarea>
+            <div class="mt-3 text-right"><button class="btn-danger" @click="deleteAgent(i)">删除</button></div>
+          </article>
+        </div>
+      </section>
+
+      <section v-show="activeTab === 'skills'">
+        <div class="mb-3 flex gap-2"><button class="btn-primary" @click="addSkill">新增 Skill</button><button class="btn-secondary" @click="saveSkills">保存 Skill</button></div>
+        <div class="grid gap-3">
+          <article v-for="(s, i) in skills" class="config-card">
+            <div class="grid gap-3 md:grid-cols-2">
+              <div><label class="label">名称</label><input class="input" v-model="s.name"></div>
+              <div><label class="label">触发关键词，逗号分隔</label><input class="input" :value="(s.keywords || []).join(', ')" @input="s.keywords = $event.target.value.split(',').map(x => x.trim()).filter(Boolean)"></div>
+            </div>
+            <label class="label mt-3">描述</label><input class="input" v-model="s.description">
+            <label class="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" v-model="s.active">激活</label>
+            <label class="label mt-3">附加指令</label><textarea class="input min-h-24" v-model="s.instruction"></textarea>
+            <div class="mt-3 text-right"><button class="btn-danger" @click="deleteSkill(i)">删除</button></div>
+          </article>
+        </div>
+      </section>
+
+      <section v-show="activeTab === 'model'">
+        <div class="panel-card max-w-2xl">
+          <div class="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-900">
+            API Key 不会写入 JSON 配置文件。推荐放在本地 `.env` 的 `DEEPSEEK_API_KEY` 中；网页输入的 Key 只保存在当前后端进程内存里，重启后失效。
+          </div>
+          <label class="label">Base URL</label><input v-model="model.base_url" class="input" placeholder="https://api.deepseek.com/v1" />
+          <label class="label mt-3">API Key</label><input v-model="model.api_key" class="input" type="password" placeholder="保存后将显示为掩码" />
+          <label class="label mt-3">Model ID</label><input v-model="model.model" class="input" placeholder="deepseek-chat" />
+          <div class="mt-4 flex gap-2"><button class="btn-primary" @click="saveModel">保存配置</button><button class="btn-secondary" @click="testModel">测试连接</button></div>
+        </div>
+      </section>
+
+      <div v-if="holdingModal.show" class="modal-mask" @click.self="closeHolding">
+        <form class="modal-card" @submit.prevent="saveHoldingModal">
+          <div class="mb-4 flex items-start justify-between gap-3">
+            <div><h2 class="text-xl font-semibold">{{ holdingModal.index === null ? '添加持仓' : '编辑持仓' }}</h2><p class="mt-1 text-sm text-slate-500">输入基金代码和成本后会自动拉取净值并计算份额</p></div>
+            <button type="button" class="mini-btn" @click="closeHolding">关闭</button>
+          </div>
+          <div class="grid gap-3 md:grid-cols-2">
+            <div><label class="label">基金代码</label><input v-model="holdingDraft.code" class="input" required @change="fetchDraftQuote"></div>
+            <div><label class="label">基金名称</label><input v-model="holdingDraft.name" class="input" placeholder="自动获取或手动输入"></div>
+            <div><label class="label">投资总成本</label><input v-model.number="holdingDraft.cost" class="input" type="number" min="0" step="0.01" required @input="calcDraftShares"></div>
+            <div><label class="label">持有份额</label><input v-model.number="holdingDraft.shares" class="input" type="number" min="0" step="0.01" readonly></div>
+            <div><label class="label">当前净值</label><input :value="draftQuote?.nav ? number(draftQuote.nav, 4) : '-'" class="input" readonly></div>
+            <div><label class="label">涨跌幅</label><input :value="draftQuote?.percent === undefined ? '-' : pct(draftQuote.percent)" class="input" readonly></div>
+          </div>
+          <label class="label mt-3">备注</label><textarea v-model="holdingDraft.note" class="input min-h-20"></textarea>
+          <div class="mt-5 flex justify-end gap-2"><button type="button" class="btn-secondary" @click="closeHolding">取消</button><button class="btn-primary">保存</button></div>
+        </form>
+      </div>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

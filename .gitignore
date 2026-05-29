@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local secrets and private user data
+.env
+config/*.json
+!config/.gitkeep
+
+# Local reference project, not part of this app
+TradingAgents-CN/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
