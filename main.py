@@ -102,10 +102,17 @@ DEFAULT_SKILLS = {
     ]
 }
 
-DEFAULT_MODEL_CONFIG = {
-    "base_url": "https://api.deepseek.com/v1",
-    "api_key": "",
-    "model": "deepseek-chat",
+DEFAULT_MODELS = {
+    "models": [
+        {
+            "id": "deepseek-default",
+            "name": "DeepSeek Chat",
+            "base_url": "https://api.deepseek.com/v1",
+            "api_key": "",
+            "model": "deepseek-chat",
+            "active": True,
+        }
+    ]
 }
 
 DEFAULT_SETTINGS = {"refresh_interval_seconds": 300}
@@ -125,7 +132,7 @@ class Store:
         "portfolio.json": DEFAULT_PORTFOLIO,
         "agents.json": DEFAULT_AGENTS,
         "skills.json": DEFAULT_SKILLS,
-        "model_config.json": DEFAULT_MODEL_CONFIG,
+        "models.json": DEFAULT_MODELS,
         "app_settings.json": DEFAULT_SETTINGS,
         "portfolio_history.json": DEFAULT_HISTORY,
     }
@@ -152,7 +159,7 @@ class Store:
 
 
 store = Store()
-runtime_model_secret = {"api_key": ""}
+runtime_api_keys: dict[str, str] = {}
 app = FastAPI(title="基金投资助手", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -192,37 +199,82 @@ class Skill(BaseModel):
     active: bool = True
 
 
-class ModelConfig(BaseModel):
+class ModelProfile(BaseModel):
+    id: str | None = None
+    name: str = ""
     base_url: str
     api_key: str = ""
     model: str
+    active: bool = True
 
 
 class ChatRequest(BaseModel):
     message: str
+    model_id: str | None = None
     agent_id: str | None = None
     agent_ids: list[str] = []
     skill_ids: list[str] = []
     mode: str = "single"
+    include_portfolio: bool = True
+    include_quotes: bool = True
+    include_skills: bool = True
+    include_rule: bool = True
 
 
-def public_model_config() -> dict[str, Any]:
-    cfg = store.read("model_config.json")
-    has_api_key = bool(os.getenv("DEEPSEEK_API_KEY") or runtime_model_secret.get("api_key") or cfg.get("api_key"))
+def migrate_model_config() -> None:
+    models_path = CONFIG_DIR / "models.json"
+    old_path = CONFIG_DIR / "model_config.json"
+    if models_path.exists():
+        return
+    if old_path.exists():
+        old = json.loads(old_path.read_text(encoding="utf-8"))
+        entry = {
+            "id": str(uuid.uuid4()),
+            "name": "DeepSeek (迁移)",
+            "base_url": os.getenv("DEEPSEEK_BASE_URL") or old.get("base_url", "https://api.deepseek.com/v1"),
+            "api_key": "",
+            "model": os.getenv("DEEPSEEK_MODEL") or old.get("model", "deepseek-chat"),
+            "active": True,
+        }
+        models_path.write_text(json.dumps({"models": [entry]}, ensure_ascii=False, indent=2), encoding="utf-8")
+    else:
+        models_path.write_text(json.dumps(DEFAULT_MODELS, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+migrate_model_config()
+
+
+def public_models() -> list[dict[str, Any]]:
+    items = store.read("models.json").get("models", [])
+    result = []
+    for m in items:
+        has_key = bool(
+            os.getenv("DEEPSEEK_API_KEY")
+            or runtime_api_keys.get(m.get("id", ""))
+            or m.get("api_key")
+        )
+        result.append({
+            "id": m.get("id", ""),
+            "name": m.get("name", ""),
+            "base_url": m.get("base_url", ""),
+            "model": m.get("model", ""),
+            "api_key": "********" if has_key else "",
+            "has_api_key": has_key,
+            "active": m.get("active", True),
+        })
+    return result
+
+
+def effective_model_by_id(model_id: str) -> dict[str, str]:
+    items = store.read("models.json").get("models", [])
+    target = next((m for m in items if m.get("id") == model_id), None)
+    if not target:
+        raise RuntimeError(f"未找到模型配置: {model_id}")
+    env_key = os.getenv("DEEPSEEK_API_KEY")
     return {
-        "base_url": os.getenv("DEEPSEEK_BASE_URL") or cfg.get("base_url", ""),
-        "model": os.getenv("DEEPSEEK_MODEL") or cfg.get("model", ""),
-        "api_key": "********" if has_api_key else "",
-        "has_api_key": has_api_key,
-    }
-
-
-def effective_model_config() -> dict[str, str]:
-    cfg = store.read("model_config.json")
-    return {
-        "base_url": os.getenv("DEEPSEEK_BASE_URL") or cfg.get("base_url", ""),
-        "api_key": os.getenv("DEEPSEEK_API_KEY") or runtime_model_secret.get("api_key") or cfg.get("api_key", ""),
-        "model": os.getenv("DEEPSEEK_MODEL") or cfg.get("model", "deepseek-chat"),
+        "base_url": target.get("base_url", ""),
+        "api_key": env_key or runtime_api_keys.get(model_id, "") or target.get("api_key", ""),
+        "model": target.get("model", "deepseek-chat"),
     }
 
 
@@ -304,32 +356,42 @@ def rule_recommendation(item: dict[str, Any], metrics: dict[str, Any]) -> dict[s
     }
 
 
-def compose_context(holdings: list[dict[str, Any]], quotes: list[dict[str, Any]], skills: list[dict[str, Any]]) -> str:
-    total_cost = sum(float(x.get("cost") or 0) for x in holdings)
-    total_value = sum(float(x.get("market_value") or 0) for x in holdings)
-    total_pnl = total_value - total_cost
-    lines = [
-        "当前账户持仓摘要：",
-        f"总成本：{total_cost:.2f} 元；当前市值：{total_value:.2f} 元；浮动盈亏：{total_pnl:.2f} 元；收益率：{(total_pnl / total_cost * 100 if total_cost else 0):.2f}%。",
-    ]
-    for item in holdings:
-        q = item.get("quote") or {}
-        lines.append(
-            f"- {item.get('code')} {q.get('name') or item.get('name')}: 成本 {float(item.get('cost') or 0):.2f}, "
-            f"份额 {float(item.get('shares') or 0):.2f}, 净值 {float(q.get('nav') or 0):.4f}, "
-            f"涨跌幅 {float(q.get('percent') or 0):.2f}%, 盈亏 {float(item.get('pnl') or 0):.2f}, 收益率 {float(item.get('pnl_rate') or 0):.2f}%."
-        )
-    lines.append("实时行情 JSON：")
-    lines.append(json.dumps(quotes, ensure_ascii=False))
-    if skills:
+def compose_context(holdings: list[dict[str, Any]], quotes: list[dict[str, Any]], skills: list[dict[str, Any]], include_portfolio: bool = True, include_quotes: bool = True, include_skills: bool = True, include_rule: bool = True) -> str:
+    lines = []
+    if include_portfolio:
+        total_cost = sum(float(x.get("cost") or 0) for x in holdings)
+        total_value = sum(float(x.get("market_value") or 0) for x in holdings)
+        total_pnl = total_value - total_cost
+        lines.extend([
+            "当前账户持仓摘要：",
+            f"总成本：{total_cost:.2f} 元；当前市值：{total_value:.2f} 元；浮动盈亏：{total_pnl:.2f} 元；收益率：{(total_pnl / total_cost * 100 if total_cost else 0):.2f}%。",
+        ])
+        for item in holdings:
+            q = item.get("quote") or {}
+            lines.append(
+                f"- {item.get('code')} {q.get('name') or item.get('name')}: 成本 {float(item.get('cost') or 0):.2f}, "
+                f"份额 {float(item.get('shares') or 0):.2f}, 净值 {float(q.get('nav') or 0):.4f}, "
+                f"涨跌幅 {float(q.get('percent') or 0):.2f}%, 盈亏 {float(item.get('pnl') or 0):.2f}, 收益率 {float(item.get('pnl_rate') or 0):.2f}%."
+            )
+    if include_quotes:
+        lines.append("实时行情 JSON：")
+        lines.append(json.dumps(quotes, ensure_ascii=False))
+    if include_skills and skills:
         lines.append("已启用技能附加指令：")
         lines.extend(f"- {s['name']}: {s.get('instruction', '')}" for s in skills)
-    lines.append(DECISIVE_RULE)
+    if include_rule:
+        lines.append(DECISIVE_RULE)
     return "\n".join(lines)
 
 
-async def call_deepseek(system_prompt: str, user_prompt: str, temperature: float, max_tokens: int) -> str:
-    cfg = effective_model_config()
+async def call_deepseek(system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, model_id: str | None = None) -> str:
+    if not model_id:
+        items = store.read("models.json").get("models", [])
+        active = [m for m in items if m.get("active")]
+        if not active:
+            raise RuntimeError("没有可用的已激活模型，请先在模型设置中添加并激活模型。")
+        model_id = active[0]["id"]
+    cfg = effective_model_by_id(model_id)
     base_url = (cfg.get("base_url") or "").rstrip("/")
     api_key = cfg.get("api_key") or ""
     model = cfg.get("model") or "deepseek-chat"
@@ -346,22 +408,33 @@ async def call_deepseek(system_prompt: str, user_prompt: str, temperature: float
         "max_tokens": max_tokens,
     }
     last_error = ""
+    last_status = None
     async with httpx.AsyncClient(timeout=30.0) as client:
-        for _ in range(2):
+        for attempt in range(2):
             try:
                 resp = await client.post(
                     f"{base_url}/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                     json=payload,
                 )
+                last_status = resp.status_code
                 if resp.status_code >= 400:
-                    last_error = resp.text[:300]
+                    body = resp.text[:500]
+                    last_error = f"HTTP {resp.status_code}: {body}"
                     continue
                 data = resp.json()
+                if "choices" not in data:
+                    last_error = f"响应缺少 choices: {str(data)[:300]}"
+                    continue
                 return data["choices"][0]["message"]["content"].strip()
+            except httpx.TimeoutException:
+                last_error = f"请求超时 (30s)，第 {attempt + 1} 次重试"
+            except httpx.ConnectError:
+                last_error = f"无法连接到 {base_url}，请检查 Base URL"
             except Exception as exc:
-                last_error = str(exc)
-    raise RuntimeError(f"模型调用失败：{last_error}")
+                last_error = str(exc) or type(exc).__name__
+    detail = last_error or "未知错误"
+    raise RuntimeError(f"模型调用失败 (status={last_status}): {detail}")
 
 
 @app.get("/")
@@ -376,7 +449,7 @@ async def bootstrap() -> dict[str, Any]:
             "portfolio": store.read("portfolio.json"),
             "agents": store.read("agents.json"),
             "skills": store.read("skills.json"),
-            "model_config": public_model_config(),
+            "models": public_models(),
             "settings": store.read("app_settings.json"),
             "history": store.read("portfolio_history.json"),
         }
@@ -526,32 +599,33 @@ async def save_skills(items: list[Skill]) -> dict[str, Any]:
     return success(await store.write("skills.json", {"skills": skills}), "Skill 配置已保存")
 
 
-@app.get("/api/model-config")
-async def get_model_config() -> dict[str, Any]:
-    return success(public_model_config())
+@app.get("/api/models")
+async def get_models() -> dict[str, Any]:
+    return success({"models": public_models()})
 
 
-@app.put("/api/model-config")
-async def save_model_config(cfg: ModelConfig) -> dict[str, Any]:
-    incoming = cfg.model_dump()
-    if incoming.get("api_key") and incoming.get("api_key") != "********":
-        runtime_model_secret["api_key"] = incoming["api_key"]
-    incoming["api_key"] = ""
-    await store.write("model_config.json", incoming)
-    return success(public_model_config(), "模型配置已保存；API Key 仅保存在当前进程内存或环境变量中，不写入 JSON")
+@app.put("/api/models")
+async def save_models(items: list[ModelProfile]) -> dict[str, Any]:
+    models = []
+    for item in items:
+        row = item.model_dump()
+        row["id"] = row.get("id") or str(uuid.uuid4())
+        if row.get("api_key") and row["api_key"] != "********":
+            runtime_api_keys[row["id"]] = row["api_key"]
+        row["api_key"] = ""
+        models.append(row)
+    await store.write("models.json", {"models": models})
+    return success({"models": public_models()}, "模型配置已保存")
 
 
-@app.post("/api/model-config/test")
-async def test_model_config(cfg: ModelConfig | None = None) -> dict[str, Any]:
-    if cfg:
-        incoming = cfg.model_dump()
-        if incoming.get("api_key") and incoming.get("api_key") != "********":
-            runtime_model_secret["api_key"] = incoming["api_key"]
-        incoming["api_key"] = ""
-        await store.write("model_config.json", incoming)
+@app.post("/api/models/test")
+async def test_model_by_id(payload: dict[str, str]) -> dict[str, Any]:
+    model_id = payload.get("model_id", "")
+    if not model_id:
+        return failure("缺少 model_id")
     try:
-        text = await call_deepseek("只回答：连接成功", "请回复：连接成功", 0, 20)
-        return success({"reply": text}, "连接测试成功")
+        text = await call_deepseek("只回答：连接成功", "请回复：连接成功", 0, 20, model_id)
+        return success({"reply": text, "model_id": model_id}, "连接测试成功")
     except Exception as exc:
         return failure(str(exc))
 
@@ -562,9 +636,15 @@ async def chat(req: ChatRequest) -> dict[str, Any]:
         all_agents = [a for a in store.read("agents.json").get("agents", []) if a.get("active")]
         all_skills = [s for s in store.read("skills.json").get("skills", []) if s.get("active")]
         selected_skills = [s for s in all_skills if s["id"] in req.skill_ids]
+        model_id = req.model_id or None
+
         holdings, quotes = await build_market_snapshot()
-        context = compose_context(holdings, quotes, selected_skills)
-        user_prompt = f"{context}\n\n用户问题：{req.message}"
+        has_context = req.include_portfolio or req.include_quotes or req.include_skills or req.include_rule
+        if has_context:
+            context = compose_context(holdings, quotes, selected_skills, req.include_portfolio, req.include_quotes, req.include_skills, req.include_rule)
+            user_prompt = f"{context}\n\n用户问题：{req.message}"
+        else:
+            user_prompt = req.message
 
         if req.mode == "collab":
             ids = req.agent_ids[:3]
@@ -573,28 +653,32 @@ async def chat(req: ChatRequest) -> dict[str, Any]:
                 return failure("协作模式至少选择 2 个已激活 Agent。")
             drafts = []
             for agent in agents:
-                answer = await call_deepseek(agent["system_prompt"], user_prompt, agent["temperature"], agent["max_tokens"])
+                answer = await call_deepseek(agent["system_prompt"], user_prompt, agent["temperature"], agent["max_tokens"], model_id)
                 drafts.append(f"【{agent['name']}】\n{answer}")
-            merge_prompt = (
-                f"{context}\n\n用户问题：{req.message}\n\n以下是多个 Agent 的初步建议，请合并成最终建议。"
-                "必须给出统一操作清单，不保留分歧，不输出模糊表达。\n\n" + "\n\n".join(drafts)
-            )
+            if has_context:
+                merge_prompt = (
+                    f"{context}\n\n用户问题：{req.message}\n\n以下是多个 Agent 的初步建议，请合并成最终建议。"
+                    "必须给出统一操作清单，不保留分歧，不输出模糊表达。\n\n" + "\n\n".join(drafts)
+                )
+            else:
+                merge_prompt = f"用户问题：{req.message}\n\n以下是多个 Agent 的初步建议，请合并成最终建议。\n\n" + "\n\n".join(drafts)
             final = await call_deepseek(
-                f"你是投资建议汇总 Agent。你负责把多名专家意见压缩成明确、可执行的最终方案。{DECISIVE_RULE}",
+                f"你是投资建议汇总 Agent。你负责把多名专家意见压缩成明确、可执行的最终方案。{DECISIVE_RULE if req.include_rule else ''}",
                 merge_prompt,
                 0.2,
                 1800,
+                model_id,
             )
             return success({"reply": final, "drafts": drafts}, "协作建议已生成")
 
         agent = next((a for a in all_agents if a["id"] == req.agent_id), all_agents[0] if all_agents else None)
         if not agent:
             return failure("没有可用的已激活 Agent。")
-        reply = await call_deepseek(agent["system_prompt"], user_prompt, agent["temperature"], agent["max_tokens"])
+        reply = await call_deepseek(agent["system_prompt"], user_prompt, agent["temperature"], agent["max_tokens"], model_id)
         return success({"reply": reply}, "回答已生成")
     except Exception as exc:
         return failure(str(exc))
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("main:app", host="localhost", port=8000, reload=False)

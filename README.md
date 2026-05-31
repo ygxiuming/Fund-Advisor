@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Version](https://img.shields.io/badge/version-v1.0.0-green.svg)](https://github.com/lzm/fund-advisor)
+[![Version](https://img.shields.io/badge/version-v1.1.0-green.svg)](https://github.com/lzm/fund-advisor)
 [![Docs](https://img.shields.io/badge/文档-中文-red.svg)](./README.md)
 
 > 📌 **面向中文用户的 AI 基金持仓管理与智能投资分析平台**
@@ -21,16 +21,18 @@ DeepSeek 基金投资助手是一个本地运行的多 Agent AI 投资顾问 Web
 
 ## ✨ 功能特性
 
-- **📊 持仓管理**：新增、编辑、删除基金持仓，本地 JSON 持久化
+- **📊 持仓管理**：新增、编辑、删除基金持仓，本地 JSON 持久化；自动按净值重算份额
 - **🔍 自动查询**：输入基金代码后自动获取基金名称和最新净值
-- **📈 实时行情**：从天天基金/东方财富公开接口获取实时净值、涨跌幅、历史数据
-- **🔥 热门排行**：展示热门基金榜单，洞察市场热点
+- **📈 实时行情**：从天天基金/东方财富公开接口获取实时净值、涨跌幅、历史数据；离线时自动降级为确定性演示数据
+- **🔥 热门排行**：展示热门基金榜单，洞察市场热点；接口不可用时自动降级返回持仓列表
 - **💰 收益分析**：组合总成本、当前市值、浮动盈亏、收益率一目了然
-- **📉 图表可视化**：盈亏曲线、资产分布、近 90 日净值走势
-- **🤖 AI 顾问**：DeepSeek 实时对话，自动携带持仓与行情上下文
-- **👥 多 Agent 协作**：2~3 个 Agent 并行分析，汇总生成最终建议
+- **📉 图表可视化**：盈亏曲线、资产分布、近 90 日净值走势（Chart.js）
+- **🤖 AI 顾问**：DeepSeek 实时对话，自动携带持仓与行情上下文，支持单 Agent / 多 Agent 协作两种模式
+- **👥 多 Agent 协作**：2~3 个 Agent 并行分析，汇总 Agent 合并生成明确、可执行的最终方案
+- **🎯 规则推荐**：基于 30 日收益、回撤、涨跌幅等指标的自动持仓操作建议
 - **⚙️ 可视化管理**：Agent 与 Skill 模板的可视化 CRUD
 - **🔒 隐私安全**：本地 JSON 存储，无需数据库，API Key 不入文件
+- **🔄 组合快照**：每次行情刷新自动记录组合快照，保留历史盈亏轨迹
 
 ---
 
@@ -63,9 +65,10 @@ DeepSeek 基金投资助手是一个本地运行的多 Agent AI 投资顾问 Web
 |------|------|------|
 | 后端框架 | FastAPI + Pydantic | 高性能异步 API |
 | HTTP 客户端 | httpx | 异步请求第三方行情接口 |
+| 行情数据 | 天天基金 / 东方财富公开 JS 接口 | 无需加密参数，离线自动降级 |
 | 前端框架 | Vue 3 CDN | 响应式单页应用 |
-| UI 样式 | TailwindCSS CDN | 原子化 CSS |
-| 图表 | Chart.js CDN | 盈亏与净值走势 |
+| UI 样式 | TailwindCSS CDN + 自定义 CSS | 原子化 CSS + 毛玻璃风格 |
+| 图表 | Chart.js CDN | 盈亏曲线、资产分布、净值走势 |
 | 数据存储 | 本地 JSON | 零依赖，无需数据库 |
 | AI 模型 | DeepSeek | 兼容 OpenAI Chat Completions |
 
@@ -166,13 +169,22 @@ __pycache__/            # Python 缓存
 
 ```text
 fund-advisor/
-├── main.py                  # FastAPI 应用入口
-├── fund_api/__init__.py     # 天天基金/东方财富行情模块
+├── main.py                  # FastAPI 应用入口（路由、业务逻辑、AI 调用）
+├── fund_api/
+│   ├── __init__.py          # 行情查询核心模块（实时净值、历史走势、指标计算）
+│   ├── eastmoney_fund_info.py  # 东方财富完整 API 封装（搜索、排行、估值等）
+│   └── eastmoney_favor_api_notes.md  # 东方财富接口笔记
 ├── static/
 │   ├── index.html           # Vue 单页应用
 │   ├── app.js               # 前端业务逻辑
-│   └── style.css            # 自定义样式
+│   └── style.css            # 毛玻璃风格自定义样式
 ├── config.example/          # 可公开的配置模板
+│   ├── agents.json          # Agent 模板示例
+│   ├── skills.json          # Skill 模板示例
+│   ├── portfolio.json       # 持仓数据示例
+│   ├── portfolio_history.json  # 组合快照历史示例
+│   ├── model_config.json    # 模型配置示例
+│   └── app_settings.json    # 应用设置示例
 ├── config/.gitkeep          # 保留本地配置目录
 ├── .env.example             # 环境变量模板
 ├── requirements.txt         # Python 依赖
@@ -198,11 +210,13 @@ fund-advisor/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/bootstrap` | 初始化数据 |
-| GET | `/api/funds/realtime` | 基金实时行情 |
-| GET | `/api/insights` | 投资洞察 |
-| GET | `/api/fund-market/hot` | 热门基金排行 |
-| PUT | `/api/portfolio` | 更新持仓 |
+| GET | `/` | 首页 |
+| GET | `/api/bootstrap` | 初始化数据（持仓、Agent、Skill、模型配置、设置、快照历史） |
+| GET | `/api/portfolio` | 获取持仓 |
+| PUT | `/api/portfolio` | 更新持仓（自动补全基金名称、记录快照） |
+| GET | `/api/funds/realtime` | 基金实时行情（自动记录快照） |
+| GET | `/api/insights` | 投资洞察（含推荐、指标、快照历史） |
+| GET | `/api/fund-market/hot` | 热门基金排行（降级返回持仓） |
 | GET | `/api/agents` | 获取 Agent 列表 |
 | PUT | `/api/agents` | 更新 Agent 配置 |
 | GET | `/api/skills` | 获取 Skill 列表 |
@@ -210,7 +224,7 @@ fund-advisor/
 | GET | `/api/model-config` | 获取模型配置 |
 | PUT | `/api/model-config` | 更新模型配置 |
 | POST | `/api/model-config/test` | 测试模型连接 |
-| POST | `/api/chat` | AI 对话 |
+| POST | `/api/chat` | AI 对话（支持 single / collab 模式） |
 
 ---
 
@@ -230,6 +244,33 @@ fund-advisor/
 - **[Tauric Research](https://github.com/TauricResearch/TradingAgents)** — TradingAgents 源项目
 - **[DeepSeek](https://deepseek.com)** — 提供高性价比的大模型 API
 - **[天天基金](https://fund.eastmoney.com)** / **[东方财富](https://www.eastmoney.com)** — 公开行情数据
+
+---
+
+## 📋 更新历史
+
+### v1.1.0（2026-05-31）
+
+- ✨ 新增组合快照自动记录功能，每次行情刷新自动保存组合盈亏轨迹
+- ✨ 新增基于规则的持仓操作推荐（加仓 / 减仓 / 持有），综合 30 日收益、回撤、涨跌幅指标
+- ✨ 新增行情接口离线降级：公开接口不可用时返回确定性演示数据，保证界面可用
+- ✨ 新增热门基金接口降级：排行接口异常时自动回退为当前持仓列表
+- ✨ 持仓管理支持自动按净值重算份额
+- 🎨 前端重构为毛玻璃风格 UI，新增自定义 CSS 样式
+- 📝 完善 API 接口说明，新增 `/api/portfolio` GET 接口
+- 📝 项目结构文档补充 `fund_api/eastmoney_fund_info.py` 等文件说明
+- 📝 README 新增更新历史章节
+
+### v1.0.0（2026-05-29）
+
+- 🎉 初始化项目：FastAPI 后端 + Vue 3 前端
+- 📊 基金持仓管理（CRUD）、实时行情、组合收益分析
+- 📈 图表可视化（盈亏曲线、资产分布、90 日净值走势）
+- 🔥 热门基金排行
+- 🤖 DeepSeek AI 对话，自动注入持仓与行情上下文
+- 👥 多 Agent 协作模式（2~3 Agent 并行 + 汇总 Agent 合并）
+- ⚙️ Agent / Skill 模板可视化管理
+- 🔒 本地 JSON 存储，隐私安全
 
 ---
 

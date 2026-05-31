@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Version](https://img.shields.io/badge/version-v1.0.0-green.svg)](https://github.com/lzm/fund-advisor)
+[![Version](https://img.shields.io/badge/version-v1.1.0-green.svg)](https://github.com/lzm/fund-advisor)
 [![Docs](https://img.shields.io/badge/docs-中文-red.svg)](./README.md)
 
 > 📌 **AI-Powered Fund Portfolio Management & Investment Advisory for Chinese Markets**
@@ -21,16 +21,18 @@ Designed for personal local use. Private data such as API keys, holdings, and po
 
 ## ✨ Features
 
-- **📊 Portfolio Management**: Add, edit, delete fund holdings with local JSON persistence
+- **📊 Portfolio Management**: Add, edit, delete fund holdings with local JSON persistence; auto-recalculate shares based on NAV
 - **🔍 Auto-Lookup**: Automatic fund name and NAV retrieval upon entering a fund code
-- **📈 Real-Time Data**: Live NAV, daily change, and historical data from Eastmoney/Tiantian Fund
-- **🔥 Hot Rankings**: Trending fund leaderboard for market insights
+- **📈 Real-Time Data**: Live NAV, daily change, and historical data from Eastmoney/Tiantian Fund; deterministic fallback data when offline
+- **🔥 Hot Rankings**: Trending fund leaderboard for market insights; auto-fallback to portfolio list when API unavailable
 - **💰 P&L Analysis**: Total cost, current value, floating P&L, and return rate at a glance
-- **📉 Charts**: P&L curves, asset allocation, and 90-day NAV trends
-- **🤖 AI Chat Advisor**: DeepSeek-powered chat with automatic portfolio and market context injection
-- **👥 Multi-Agent Collaboration**: 2–3 agents analyze in parallel, then synthesize a final recommendation
+- **📉 Charts**: P&L curves, asset allocation, and 90-day NAV trends (Chart.js)
+- **🤖 AI Chat Advisor**: DeepSeek-powered chat with automatic portfolio and market context injection; single-agent and multi-agent collaboration modes
+- **👥 Multi-Agent Collaboration**: 2–3 agents analyze in parallel, then a summary agent synthesizes a clear, actionable final recommendation
+- **🎯 Rule-Based Recommendations**: Auto-generated buy/sell/hold suggestions based on 30-day return, drawdown, and daily change
 - **⚙️ Visual Management**: Visual CRUD interface for Agent and Skill templates
 - **🔒 Privacy First**: Local JSON storage, no database required, API keys never persisted to files
+- **🔄 Portfolio Snapshots**: Auto-record portfolio snapshots on every quote refresh, preserving historical P&L trajectory
 
 ---
 
@@ -63,9 +65,10 @@ Workflow:
 |-------|-----------|-------|
 | Backend | FastAPI + Pydantic | High-performance async API |
 | HTTP | httpx | Async third-party market data requests |
+| Market Data | Eastmoney / Tiantian Fund public JS endpoints | No encryption required; offline auto-fallback |
 | Frontend | Vue 3 CDN | Reactive single-page application |
-| Styling | TailwindCSS CDN | Utility-first CSS |
-| Charts | Chart.js CDN | P&L and NAV trend visualization |
+| Styling | TailwindCSS CDN + custom CSS | Utility-first CSS + glassmorphism design |
+| Charts | Chart.js CDN | P&L curves, asset allocation, NAV trends |
 | Storage | Local JSON | Zero dependencies, no database needed |
 | AI Model | DeepSeek | OpenAI Chat Completions compatible |
 
@@ -166,13 +169,22 @@ __pycache__/            # Python cache
 
 ```text
 fund-advisor/
-├── main.py                  # FastAPI application entry point
-├── fund_api/__init__.py     # Eastmoney/Tiantian Fund market data module
+├── main.py                  # FastAPI application entry point (routes, business logic, AI calls)
+├── fund_api/
+│   ├── __init__.py          # Market data core module (realtime NAV, history, metrics)
+│   ├── eastmoney_fund_info.py  # Full Eastmoney API wrapper (search, rankings, estimates, etc.)
+│   └── eastmoney_favor_api_notes.md  # Eastmoney API notes
 ├── static/
 │   ├── index.html           # Vue single-page application
 │   ├── app.js               # Frontend business logic
-│   └── style.css            # Custom styles
+│   └── style.css            # Glassmorphism-style custom CSS
 ├── config.example/          # Public configuration templates
+│   ├── agents.json          # Agent template example
+│   ├── skills.json          # Skill template example
+│   ├── portfolio.json       # Portfolio data example
+│   ├── portfolio_history.json  # Portfolio snapshot history example
+│   ├── model_config.json    # Model config example
+│   └── app_settings.json    # App settings example
 ├── config/.gitkeep          # Preserves the local config directory
 ├── .env.example             # Environment variable template
 ├── requirements.txt         # Python dependencies
@@ -198,11 +210,13 @@ All responses follow a unified envelope:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/bootstrap` | App initialization data |
-| GET | `/api/funds/realtime` | Real-time fund quotes |
-| GET | `/api/insights` | Investment insights |
-| GET | `/api/fund-market/hot` | Trending fund rankings |
-| PUT | `/api/portfolio` | Update portfolio |
+| GET | `/` | Homepage |
+| GET | `/api/bootstrap` | App initialization data (portfolio, agents, skills, model config, settings, snapshot history) |
+| GET | `/api/portfolio` | Get portfolio |
+| PUT | `/api/portfolio` | Update portfolio (auto-fill fund name, record snapshot) |
+| GET | `/api/funds/realtime` | Real-time fund quotes (auto-record snapshot) |
+| GET | `/api/insights` | Investment insights (includes recommendations, metrics, snapshot history) |
+| GET | `/api/fund-market/hot` | Trending fund rankings (fallback to portfolio on failure) |
 | GET | `/api/agents` | List agent templates |
 | PUT | `/api/agents` | Update agent config |
 | GET | `/api/skills` | List skill templates |
@@ -210,7 +224,7 @@ All responses follow a unified envelope:
 | GET | `/api/model-config` | Get model configuration |
 | PUT | `/api/model-config` | Update model configuration |
 | POST | `/api/model-config/test` | Test model connection |
-| POST | `/api/chat` | AI chat |
+| POST | `/api/chat` | AI chat (single / collab mode) |
 
 ---
 
@@ -230,6 +244,33 @@ This project is an investment assistance tool and **does not constitute financia
 - **[Tauric Research](https://github.com/TauricResearch/TradingAgents)** — Original TradingAgents project
 - **[DeepSeek](https://deepseek.com)** — Affordable and capable LLM API
 - **[Eastmoney](https://www.eastmoney.com)** / **[Tiantian Fund](https://fund.eastmoney.com)** — Public market data
+
+---
+
+## 📋 Changelog
+
+### v1.1.0 (2026-05-31)
+
+- ✨ Added automatic portfolio snapshot recording on every quote refresh
+- ✨ Added rule-based holding recommendations (buy / reduce / hold) using 30-day return, drawdown, and daily change
+- ✨ Added offline fallback for quote API: deterministic demo data when public endpoint unavailable
+- ✨ Added fallback for hot fund rankings: returns portfolio list when ranking API fails
+- ✨ Portfolio management now auto-recalculates shares based on current NAV
+- 🎨 Redesigned frontend with glassmorphism-style UI and custom CSS
+- 📝 Improved API documentation; added GET `/api/portfolio` endpoint
+- 📝 Expanded project structure docs with `fund_api/eastmoney_fund_info.py` etc.
+- 📝 Added Changelog section to README
+
+### v1.0.0 (2026-05-29)
+
+- 🎉 Initial release: FastAPI backend + Vue 3 frontend
+- 📊 Fund portfolio management (CRUD), real-time quotes, portfolio performance analysis
+- 📈 Chart visualization (P&L curves, asset allocation, 90-day NAV trends)
+- 🔥 Hot fund rankings
+- 🤖 DeepSeek AI chat with automatic portfolio and market context injection
+- 👥 Multi-agent collaboration mode (2–3 agents in parallel + summary agent)
+- ⚙️ Agent / Skill template visual management
+- 🔒 Local JSON storage, privacy-first
 
 ---
 
