@@ -147,56 +147,127 @@
           </section>
 
           <!-- Chat -->
-          <section v-show="activeTab === 'chat'">
-            <div class="section-header">
-              <div><h2 class="section-title">实时聊天顾问</h2><p class="section-desc">与 AI 投资顾问对话，获取明确买卖建议</p></div>
-              <div class="section-actions">
-                <button class="btn btn-secondary btn-sm" @click="exportChat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出聊天</button>
-              </div>
-            </div>
-            <div class="chat-layout">
-              <aside class="chat-sidebar">
-                <div class="panel-card">
-                  <label class="label">使用模型</label>
-                  <select v-model="chat.model_id" class="input"><option v-for="m in activeModels" :key="m.id" :value="m.id">{{ m.name }} ({{ m.model }})</option></select>
-                  <label class="label mt-3">模式</label>
-                  <select v-model="chat.mode" class="input"><option value="single">单 Agent</option><option value="collab">协作模式</option></select>
-                  <label class="label mt-3">当前 Agent</label>
-                  <select v-model="chat.agent_id" class="input"><option v-for="a in activeAgents" :key="a.id" :value="a.id">{{ a.name }}</option></select>
-                  <div class="mt-3">
-                    <div style="font-size:12px;font-weight:700;color:var(--color-text-secondary);margin-bottom:8px">协作 Agent</div>
-                    <label v-for="a in activeAgents" :key="a.id" style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" :value="a.id" v-model="chat.agent_ids"> {{ a.name }}</label>
+          <section v-show="activeTab === 'chat'" class="chat-page">
+            <div class="chat-page-layout">
+              <aside class="chat-history-panel">
+                <div class="chat-history-header">
+                  <button class="btn btn-primary btn-sm chat-new-btn" @click="newConversation">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    新建聊天
+                  </button>
+                </div>
+                <div class="chat-history-list">
+                  <div
+                    v-for="conv in sortedConversations"
+                    :key="conv.id"
+                    :class="['chat-history-item', { active: conv.id === currentConversationId }]"
+                    @click="switchConversation(conv.id)"
+                  >
+                    <div class="chat-history-item-content">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                      <span class="chat-history-item-title">{{ conv.title }}</span>
+                    </div>
+                    <button class="chat-history-delete" @click.stop="deleteConversation(conv.id)" title="删除对话">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
                   </div>
-                  <div class="mt-4">
-                    <div style="font-size:12px;font-weight:700;color:var(--color-text-secondary);margin-bottom:8px">技能模板</div>
-                    <label v-for="s in activeSkills" :key="s.id" style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" :value="s.id" v-model="chat.skill_ids"> {{ s.name }}</label>
-                  </div>
-                  <div class="mt-4">
-                    <div style="font-size:12px;font-weight:700;color:var(--color-text-secondary);margin-bottom:8px">发送上下文</div>
-                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" v-model="chat.include_portfolio"> 持仓摘要</label>
-                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" v-model="chat.include_quotes"> 实时行情</label>
-                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" v-model="chat.include_skills"> 技能指令</label>
-                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" v-model="chat.include_rule"> 投资规则约束</label>
-                  </div>
+                  <div v-if="!conversations.length" class="chat-history-empty">暂无对话记录</div>
                 </div>
               </aside>
-              <div class="chat-main">
-                <div class="chat-log" ref="chatLog">
-                  <div v-if="!messages.length" class="empty-state"><h3>开始对话</h3><p>输入你的投资问题，AI 顾问将给出明确建议</p></div>
+
+              <div class="chat-main-area">
+                <div class="chat-toolbar">
+                  <div class="chat-toolbar-left">
+                    <span class="chat-toolbar-title">{{ currentConversationTitle }}</span>
+                  </div>
+                  <div class="chat-toolbar-right">
+                    <button class="btn btn-ghost btn-sm" @click="exportChat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出</button>
+                    <button :class="['btn btn-ghost btn-sm', { 'btn-active': showChatConfig }]" @click="showChatConfig = !showChatConfig">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9"/></svg>
+                      设置
+                    </button>
+                  </div>
+                </div>
+
+                <div v-if="showChatConfig" class="chat-config-panel">
+                  <div class="chat-config-grid">
+                    <div class="chat-config-group">
+                      <label class="label">使用模型</label>
+                      <select v-model="chat.model_id" class="input"><option v-for="m in activeModels" :key="m.id" :value="m.id">{{ m.name }} ({{ m.model }})</option></select>
+                    </div>
+                    <div class="chat-config-group">
+                      <label class="label">模式</label>
+                      <select v-model="chat.mode" class="input"><option value="single">单 Agent</option><option value="collab">协作模式</option></select>
+                    </div>
+                    <div class="chat-config-group">
+                      <label class="label">当前 Agent</label>
+                      <select v-model="chat.agent_id" class="input"><option v-for="a in activeAgents" :key="a.id" :value="a.id">{{ a.name }}</option></select>
+                    </div>
+                    <div class="chat-config-group">
+                      <label class="label">协作 Agent</label>
+                      <label v-for="a in activeAgents" :key="a.id" style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" :value="a.id" v-model="chat.agent_ids"> {{ a.name }}</label>
+                    </div>
+                    <div class="chat-config-group">
+                      <label class="label">技能模板</label>
+                      <label v-for="s in activeSkills" :key="s.id" style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" :value="s.id" v-model="chat.skill_ids"> {{ s.name }}</label>
+                    </div>
+                    <div class="chat-config-group">
+                      <label class="label">发送上下文</label>
+                      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" v-model="chat.include_portfolio"> 持仓摘要</label>
+                      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" v-model="chat.include_quotes"> 实时行情</label>
+                      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" v-model="chat.include_skills"> 技能指令</label>
+                      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" v-model="chat.include_rule"> 投资规则约束</label>
+                    </div>
+                    <div class="chat-config-group">
+                      <label class="label">深度思考</label>
+                      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" v-model="chat.thinking_enabled"> 启用思考模式</label>
+                      <select v-if="chat.thinking_enabled" v-model="chat.reasoning_effort" class="input" style="margin-top:4px">
+                        <option value="high">标准思考 (high)</option>
+                        <option value="max">深度思考 (max)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="chat-messages" ref="chatLog">
+                  <div v-if="!messages.length" class="empty-state chat-welcome">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="64" height="64"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    <h3>开始对话</h3><p>输入你的投资问题，AI 顾问将给出明确建议</p>
+                  </div>
                   <div v-for="m in messages" :key="m.id" :class="['chat-msg', m.role]">
-                    <div class="chat-avatar" :class="m.role === 'user' ? 'human' : 'ai'">{{ m.role === 'user' ? '我' : 'AI' }}</div>
+                    <div class="chat-avatar" :class="m.role === 'user' ? 'human' : (m.role === 'error' ? 'err' : 'ai')">{{ m.role === 'user' ? '我' : (m.role === 'error' ? '!' : 'AI') }}</div>
                     <div>
-                      <div class="chat-bubble" v-html="renderMarkdown(m.text)"></div>
+                      <div :class="['chat-bubble', m.role === 'error' ? 'bubble-error' : '', (sendingChat && m.role === 'assistant' && m === messages[messages.length-1]) ? 'streaming-cursor' : '']">
+                        <template v-if="m.role === 'user'"><span style="white-space:pre-wrap">{{ m.text }}</span></template>
+                        <template v-else>
+                          <div v-if="m.thinkingText" class="thinking-block">
+                            <div class="thinking-header" @click="m._thinkingOpen = !m._thinkingOpen">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                              <span>思考过程</span>
+                              <span :class="['thinking-arrow', { open: m._thinkingOpen }]">▸</span>
+                            </div>
+                            <div v-show="m._thinkingOpen" class="thinking-content"><span style="white-space:pre-wrap">{{ m.thinkingText }}</span></div>
+                          </div>
+                          <span v-html="renderMarkdown(m.text)"></span>
+                        </template>
+                      </div>
                       <div class="chat-time">{{ m.time }}</div>
                     </div>
                   </div>
-                  <div v-if="sendingChat" class="chat-msg assistant">
-                    <div class="chat-avatar ai">AI</div>
-                    <div class="typing-indicator"><span></span><span></span><span></span></div>
-                  </div>
                 </div>
                 <div class="chat-input-area">
-                  <textarea v-model="chat.message" placeholder="例如：请根据当前持仓给出本周调仓建议" @keydown.enter.exact.prevent="sendChat"></textarea>
+                  <div class="quick-phrases-bar" v-if="quickPhrases.length">
+                    <button v-for="qp in quickPhrases" :key="qp.id" class="quick-phrase-pill" @click="useQuickPhrase(qp)" :title="qp.text">
+                      {{ qp.text.length > 12 ? qp.text.slice(0, 12) + '…' : qp.text }}
+                      <span class="qp-edit" @click.stop="openEditQuickPhrase(qp)" title="编辑">✎</span>
+                      <span class="qp-delete" @click.stop="deleteQuickPhrase(qp)" title="删除">×</span>
+                    </button>
+                    <button class="quick-phrase-add" @click="openAddQuickPhrase" title="添加快捷短语">+</button>
+                  </div>
+                  <div v-else class="quick-phrases-bar">
+                    <button class="quick-phrase-add" @click="openAddQuickPhrase" title="添加快捷短语">+ 添加快捷短语</button>
+                  </div>
+                  <textarea v-model="chat.message" placeholder="例如：请根据当前持仓给出本周调仓建议" @keydown.enter.exact.prevent="sendChat" rows="2"></textarea>
                   <div class="chat-input-actions">
                     <span class="chat-input-hint">Enter 发送 · Shift+Enter 换行</span>
                     <button class="btn btn-primary btn-sm" :disabled="sendingChat" @click="sendChat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>发送</button>
@@ -316,6 +387,19 @@
           </div>
           <label class="label mt-3">备注</label><textarea v-model="holdingDraft.note" class="input" style="min-height:70px"></textarea>
           <div class="mt-5 flex justify-end gap-2"><button type="button" class="btn btn-secondary" @click="closeHolding">取消</button><button class="btn btn-primary">保存</button></div>
+        </form>
+      </div>
+
+      <!-- Quick Phrase Modal -->
+      <div v-if="showQuickPhraseModal" class="modal-mask" @click.self="showQuickPhraseModal = false">
+        <form class="modal-card" @submit.prevent="saveQuickPhrase">
+          <div class="modal-header">
+            <div><h2>{{ editingQuickPhraseId ? '编辑快捷短语' : '添加快捷短语' }}</h2><p>设置常用提问，点击即可发送</p></div>
+            <button type="button" class="close-btn" @click="showQuickPhraseModal = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+          </div>
+          <label class="label">短语内容</label>
+          <textarea v-model="quickPhraseDraft.text" class="input" style="min-height:80px" placeholder="例如：请分析当前持仓的风险水平" required></textarea>
+          <div class="mt-5 flex justify-end gap-2"><button type="button" class="btn btn-secondary" @click="showQuickPhraseModal = false">取消</button><button class="btn btn-primary">保存</button></div>
         </form>
       </div>
     </div>

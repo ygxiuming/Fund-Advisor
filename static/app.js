@@ -1,5 +1,8 @@
 const { createApp, nextTick, ref } = Vue;
 
+const CHAT_STORAGE_KEY = "fund-advisor-chats";
+const MAX_CONVERSATIONS = 50;
+
 createApp({
   data() {
     return {
@@ -23,8 +26,10 @@ createApp({
       insights: null,
       hotFunds: [],
       charts: {},
-      messages: [],
-      chat: { mode: "single", model_id: "", agent_id: "", agent_ids: [], skill_ids: [], message: "", include_portfolio: true, include_quotes: true, include_skills: true, include_rule: true },
+      conversations: [],
+      currentConversationId: null,
+      showChatConfig: false,
+      chat: { mode: "single", model_id: "", agent_id: "", agent_ids: [], skill_ids: [], message: "", include_portfolio: true, include_quotes: true, include_skills: true, include_rule: true, thinking_enabled: false, reasoning_effort: "high" },
       holdingModal: { show: false, index: null },
       holdingDraft: { id: "", code: "", name: "", cost: 0, shares: 0, note: "" },
       draftQuote: null,
@@ -32,6 +37,10 @@ createApp({
       sendingChat: false,
       showPassword: false,
       modelTestStatus: {},
+      quickPhrases: [],
+      showQuickPhraseModal: false,
+      quickPhraseDraft: { text: "" },
+      editingQuickPhraseId: null,
     };
   },
   computed: {
@@ -63,9 +72,22 @@ createApp({
       return { cost, value, pnl, rate: cost ? (pnl / cost) * 100 : 0 };
     },
     recommendations() { return this.insights?.recommendations || []; },
+    currentConversation() {
+      return this.conversations.find((c) => c.id === this.currentConversationId) || null;
+    },
+    messages() {
+      return this.currentConversation?.messages || [];
+    },
+    currentConversationTitle() {
+      return this.currentConversation?.title || "新对话";
+    },
+    sortedConversations() {
+      return [...this.conversations].sort((a, b) => b.updatedAt - a.updatedAt);
+    },
   },
   async mounted() {
     this.initTheme();
+    this.loadConversations();
     await this.loadAll();
   },
   watch: {
@@ -77,6 +99,10 @@ createApp({
         });
       }
       this.sidebarOpen = false;
+    },
+    conversations: {
+      handler() { this.saveConversations(); },
+      deep: true,
     },
   },
   methods: {
@@ -108,8 +134,9 @@ createApp({
     },
     renderMarkdown(text) {
       if (!text) return "";
-      try { return window.marked.parse(text, { breaks: true }); }
-      catch { return text; }
+      try {
+        return window.marked.parse(text, { gfm: true, breaks: false });
+      } catch { return text; }
     },
     async api(path, options = {}) {
       const res = await fetch(path, {
@@ -147,6 +174,73 @@ createApp({
       const d = new Date();
       return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
     },
+    extractTitle(text) {
+      const first = (text || "").trim();
+      return first.length > 24 ? first.substring(0, 24) + "..." : first || "新对话";
+    },
+
+    // ---- Conversation Management ----
+    loadConversations() {
+      try {
+        const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+        this.conversations = raw ? JSON.parse(raw) : [];
+        if (this.conversations.length > 0) {
+          const lastId = localStorage.getItem("fund-advisor-current-chat");
+          this.currentConversationId = (lastId && this.conversations.find(c => c.id === lastId))
+            ? lastId
+            : this.conversations[0].id;
+        } else {
+          this.newConversation();
+        }
+      } catch {
+        this.conversations = [];
+        this.newConversation();
+      }
+    },
+    saveConversations() {
+      try {
+        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(this.conversations.slice(0, MAX_CONVERSATIONS)));
+        if (this.currentConversationId) {
+          localStorage.setItem("fund-advisor-current-chat", this.currentConversationId);
+        }
+      } catch {}
+    },
+    newConversation() {
+      const conv = {
+        id: this.uid(),
+        title: "新对话",
+        messages: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      this.conversations.unshift(conv);
+      this.currentConversationId = conv.id;
+      if (this.conversations.length > MAX_CONVERSATIONS) {
+        this.conversations = this.conversations.slice(0, MAX_CONVERSATIONS);
+      }
+    },
+    switchConversation(id) {
+      if (id === this.currentConversationId) return;
+      this.currentConversationId = id;
+      this.saveConversations();
+      this.scrollChatToBottom();
+    },
+    deleteConversation(id) {
+      if (this.conversations.length <= 1) {
+        this.conversations[0].messages = [];
+        this.conversations[0].title = "新对话";
+        this.conversations[0].updatedAt = Date.now();
+        return;
+      }
+      const idx = this.conversations.findIndex((c) => c.id === id);
+      if (idx === -1) return;
+      this.conversations.splice(idx, 1);
+      if (this.currentConversationId === id) {
+        this.currentConversationId = this.conversations[0]?.id || null;
+        if (!this.currentConversationId) this.newConversation();
+      }
+    },
+
     async loadAll() {
       try {
         const data = await this.api("/api/bootstrap");
@@ -154,6 +248,7 @@ createApp({
         this.agents = data.agents.agents || [];
         this.skills = data.skills.skills || [];
         this.models = data.models || [];
+        this.quickPhrases = data.quick_phrases || [];
         this.chat.model_id = this.activeModels[0]?.id || "";
         this.chat.agent_id = this.activeAgents[0]?.id || "";
         await this.refreshQuotes(null, false);
@@ -315,17 +410,146 @@ createApp({
     async sendChat() {
       const text = this.chat.message.trim();
       if (!text || this.sendingChat) return;
-      this.messages.push({ id: this.uid(), role: "user", text, time: this.now() });
+
+      if (!this.currentConversation) this.newConversation();
+
+      this.currentConversation.messages.push({ id: this.uid(), role: "user", text, time: this.now() });
+      if (this.currentConversation.messages.filter(m => m.role === "user").length === 1) {
+        this.currentConversation.title = this.extractTitle(text);
+      }
+      this.currentConversation.updatedAt = Date.now();
       this.chat.message = "";
       this.scrollChatToBottom();
       this.sendingChat = true;
-      const pendingId = this.uid();
+
+      const replyId = this.uid();
+      this.currentConversation.messages.push({ id: replyId, role: "assistant", text: "", thinkingText: "", _thinkingOpen: true, time: this.now() });
+
       try {
-        const data = await this.api("/api/chat", { method: "POST", body: JSON.stringify({ message: text, model_id: this.chat.model_id, mode: this.chat.mode, agent_id: this.chat.agent_id, agent_ids: this.chat.agent_ids, skill_ids: this.chat.skill_ids, include_portfolio: this.chat.include_portfolio, include_quotes: this.chat.include_quotes, include_skills: this.chat.include_skills, include_rule: this.chat.include_rule }) });
-        this.messages.push({ id: pendingId, role: "assistant", text: data.reply, time: this.now() });
+        const body = JSON.stringify({
+          message: text,
+          model_id: this.chat.model_id,
+          mode: "single",
+          agent_id: this.chat.agent_id,
+          agent_ids: this.chat.agent_ids,
+          skill_ids: this.chat.skill_ids,
+          include_portfolio: this.chat.include_portfolio,
+          include_quotes: this.chat.include_quotes,
+          include_skills: this.chat.include_skills,
+          include_rule: this.chat.include_rule,
+          thinking_enabled: this.chat.thinking_enabled,
+          reasoning_effort: this.chat.reasoning_effort,
+        });
+
+        const resp = await fetch("/api/chat/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let fullText = "";
+        let fullThinking = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data: ")) continue;
+            const payload = trimmed.slice(6);
+            if (payload === "[DONE]") continue;
+            try {
+              const chunk = JSON.parse(payload);
+              if (chunk.error) {
+                const msg = this.currentConversation.messages;
+                const last = msg[msg.length - 1];
+                if (last && last.id === replyId) {
+                  last.role = "error";
+                  last.text = chunk.error;
+                }
+                this.showToast(chunk.error, false);
+                this.sendingChat = false;
+                this.currentConversation.updatedAt = Date.now();
+                this.scrollChatToBottom();
+                return;
+              }
+              const msg = this.currentConversation.messages;
+              const last = msg[msg.length - 1];
+              if (chunk.thinking && last && last.id === replyId) {
+                fullThinking += chunk.thinking;
+                last.thinkingText = fullThinking;
+                this.scrollChatToBottom();
+              }
+              if (chunk.token && last && last.id === replyId) {
+                fullText += chunk.token;
+                last.text = fullText;
+                this.scrollChatToBottom();
+              }
+            } catch {}
+          }
+        }
+
+        if (!fullText) {
+          const msg = this.currentConversation.messages;
+          const last = msg[msg.length - 1];
+          if (last && last.id === replyId && !last.text) {
+            last.text = "未收到回复。";
+          }
+        }
       } catch (err) {
-        this.messages.push({ id: pendingId, role: "assistant", text: `错误：${err.message}`, time: this.now() });
+        const errMsg = err.message || "未知错误";
+        const msg = this.currentConversation.messages;
+        const last = msg[msg.length - 1];
+        if (last && last.id === replyId) {
+          last.role = "error";
+          last.text = errMsg;
+        }
+        this.showToast(errMsg, false);
+
+        if (errMsg.includes("Failed to fetch") || errMsg.includes("NetworkError") || errMsg.includes("网络")) {
+          try {
+            const data = await this.api("/api/chat", {
+              method: "POST",
+              body: JSON.stringify({
+                message: text,
+                model_id: this.chat.model_id,
+                mode: "single",
+                agent_id: this.chat.agent_id,
+                agent_ids: this.chat.agent_ids,
+                skill_ids: this.chat.skill_ids,
+                include_portfolio: this.chat.include_portfolio,
+                include_quotes: this.chat.include_quotes,
+                include_skills: this.chat.include_skills,
+                include_rule: this.chat.include_rule,
+                thinking_enabled: this.chat.thinking_enabled,
+                reasoning_effort: this.chat.reasoning_effort,
+              }),
+            });
+            const msg = this.currentConversation.messages;
+            const last = msg[msg.length - 1];
+            if (last && last.id === replyId) {
+              last.role = "assistant";
+              last.text = data.reply;
+            }
+          } catch (fallbackErr) {
+            const msg2 = this.currentConversation.messages;
+            const last2 = msg2[msg2.length - 1];
+            if (last2 && last2.id === replyId) {
+              last2.role = "error";
+              last2.text = fallbackErr.message;
+            }
+          }
+        }
       }
+      this.currentConversation.updatedAt = Date.now();
       this.sendingChat = false;
       this.scrollChatToBottom();
     },
@@ -339,6 +563,43 @@ createApp({
       a.click();
       URL.revokeObjectURL(a.href);
       this.showToast("聊天记录已导出");
+    },
+    useQuickPhrase(phrase) {
+      this.chat.message = phrase.text;
+      this.sendChat();
+    },
+    openAddQuickPhrase() {
+      this.editingQuickPhraseId = null;
+      this.quickPhraseDraft = { text: "" };
+      this.showQuickPhraseModal = true;
+    },
+    openEditQuickPhrase(phrase) {
+      this.editingQuickPhraseId = phrase.id;
+      this.quickPhraseDraft = { text: phrase.text };
+      this.showQuickPhraseModal = true;
+    },
+    async saveQuickPhrase() {
+      const text = this.quickPhraseDraft.text.trim();
+      if (!text) { this.showToast("请输入短语内容", false); return; }
+      try {
+        if (this.editingQuickPhraseId) {
+          const idx = this.quickPhrases.findIndex(p => p.id === this.editingQuickPhraseId);
+          if (idx !== -1) this.quickPhrases[idx].text = text;
+          await this.api("/api/quick-phrases", { method: "PUT", body: JSON.stringify({ phrases: this.quickPhrases }) });
+        } else {
+          const data = await this.api("/api/quick-phrases", { method: "POST", body: JSON.stringify({ text, active: true }) });
+          if (data.phrase) this.quickPhrases.push(data.phrase);
+        }
+        this.showQuickPhraseModal = false;
+        this.showToast(this.editingQuickPhraseId ? "快捷短语已更新" : "快捷短语已添加");
+      } catch (err) { this.showToast(err.message, false); }
+    },
+    async deleteQuickPhrase(phrase) {
+      try {
+        const data = await this.api(`/api/quick-phrases/${phrase.id}`, { method: "DELETE" });
+        this.quickPhrases = data.phrases || [];
+        this.showToast("快捷短语已删除");
+      } catch (err) { this.showToast(err.message, false); }
     },
     addAgent() {
       this.agents.push({ id: this.uid(), name: "新 Agent", description: "", system_prompt: "你是基金投资顾问。必须给出明确买卖建议。", temperature: 0.3, max_tokens: 1500, active: true });

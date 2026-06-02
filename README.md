@@ -2,8 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Version](https://img.shields.io/badge/version-v1.1.0-green.svg)](https://github.com/lzm/fund-advisor)
-[![Docs](https://img.shields.io/badge/文档-中文-red.svg)](./README.md)
+[![Version](https://img.shields.io/badge/version-v1.3.0-green.svg)](https://github.com/lzm/fund-advisor)
 
 > 📌 **面向中文用户的 AI 基金持仓管理与智能投资分析平台**
 >
@@ -13,9 +12,7 @@
 
 ## 📖 项目简介
 
-DeepSeek 基金投资助手是一个本地运行的多 Agent AI 投资顾问 Web 应用。它支持基金持仓管理、实时行情刷新、组合收益分析、热门基金排行，并通过 DeepSeek 大模型提供基于持仓上下文的投资建议。
-
-本项目适合个人本地使用。API Key、真实持仓、历史收益等隐私数据默认不会被 Git 追踪。
+DeepSeek 基金投资助手是一个本地运行的多 Agent AI 投资顾问 Web 应用。支持基金持仓管理、实时行情刷新、组合收益分析、热门基金排行，并通过 DeepSeek 大模型以流式输出提供基于持仓上下文的投资建议。
 
 ---
 
@@ -23,16 +20,19 @@ DeepSeek 基金投资助手是一个本地运行的多 Agent AI 投资顾问 Web
 
 - **📊 持仓管理**：新增、编辑、删除基金持仓，本地 JSON 持久化；自动按净值重算份额
 - **🔍 自动查询**：输入基金代码后自动获取基金名称和最新净值
-- **📈 实时行情**：从天天基金/东方财富公开接口获取实时净值、涨跌幅、历史数据；离线时自动降级为确定性演示数据
-- **🔥 热门排行**：展示热门基金榜单，洞察市场热点；接口不可用时自动降级返回持仓列表
+- **📈 实时行情**：从天天基金/东方财富公开接口获取实时净值、涨跌幅、历史数据；离线时自动降级
+- **🔥 热门排行**：展示热门基金榜单，洞察市场热点；接口不可用时自动降级
 - **💰 收益分析**：组合总成本、当前市值、浮动盈亏、收益率一目了然
 - **📉 图表可视化**：盈亏曲线、资产分布、近 90 日净值走势（Chart.js）
-- **🤖 AI 顾问**：DeepSeek 实时对话，自动携带持仓与行情上下文，支持单 Agent / 多 Agent 协作两种模式
+- **🤖 AI 顾问**：DeepSeek 实时流式对话，自动携带持仓与行情上下文，支持单 Agent / 多 Agent 协作
+- **🧠 深度思考**：支持 DeepSeek 思考模式，思维链流式输出、可折叠查看，思考强度可选（high / max）
+- **💬 聊天历史**：多会话管理，新建/切换/删除对话，本地持久化
+- **⚡ 快捷短语**：预设常用提问模板，点击即发，支持增删改查
 - **👥 多 Agent 协作**：2~3 个 Agent 并行分析，汇总 Agent 合并生成明确、可执行的最终方案
 - **🎯 规则推荐**：基于 30 日收益、回撤、涨跌幅等指标的自动持仓操作建议
-- **⚙️ 可视化管理**：Agent 与 Skill 模板的可视化 CRUD
-- **🔒 隐私安全**：本地 JSON 存储，无需数据库，API Key 不入文件
+- **⚙️ 可视化管理**：Agent、Skill、模型配置的可视化 CRUD
 - **🔄 组合快照**：每次行情刷新自动记录组合快照，保留历史盈亏轨迹
+- **🌗 暗色模式**：一键切换亮色/暗色主题
 
 ---
 
@@ -42,13 +42,7 @@ DeepSeek 基金投资助手是一个本地运行的多 Agent AI 投资顾问 Web
 
 本项目的多 Agent 协作理念参考了 **[TradingAgents-CN](https://github.com/hsliuping/TradingAgents-CN)** —— 一个面向中文用户的多智能体与大模型股票分析学习平台。
 
-> 🎯 TradingAgents-CN 是多 Agent 金融分析领域的优秀开源项目，我们向其产品理念和架构设计致敬。
-
-### 当前实现
-
-本项目的多 Agent 协作逻辑为独立实现，代码不依赖 TradingAgents-CN 仓库中的任何内容。
-
-工作流程：
+### 工作流程
 
 | 步骤 | 说明 |
 |------|------|
@@ -65,6 +59,7 @@ DeepSeek 基金投资助手是一个本地运行的多 Agent AI 投资顾问 Web
 |------|------|------|
 | 后端框架 | FastAPI + Pydantic | 高性能异步 API |
 | HTTP 客户端 | httpx | 异步请求第三方行情接口 |
+| 流式输出 | SSE (Server-Sent Events) | 逐 token 流式响应 |
 | 行情数据 | 天天基金 / 东方财富公开 JS 接口 | 无需加密参数，离线自动降级 |
 | 前端框架 | Vue 3 CDN | 响应式单页应用 |
 | UI 样式 | TailwindCSS CDN + 自定义 CSS | 原子化 CSS + 毛玻璃风格 |
@@ -100,11 +95,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-浏览器访问：
-
-```text
-http://localhost:8000
-```
+浏览器访问 http://localhost:8000
 
 ---
 
@@ -134,35 +125,6 @@ DEEPSEEK_API_KEY=replace-with-your-real-api-key
 
 在网页「模型设置」中临时输入 API Key。网页输入的 Key 仅保存在后端进程内存中，重启服务后失效。
 
-> ⚠️ `.env` 已被 `.gitignore` 忽略，不会被提交到 GitHub。
-
----
-
-## 🔒 隐私与安全
-
-### Git 忽略规则
-
-以下内容默认不被 Git 追踪：
-
-```text
-.env                    # 环境变量（含 API Key）
-config/*.json           # 本地配置文件
-TradingAgents-CN/       # 参考项目
-__pycache__/            # Python 缓存
-```
-
-### 提交检查清单
-
-| 文件 | 是否可提交 |
-|------|-----------|
-| `config.example/` | ✅ 可提交（公开模板） |
-| `.env.example` | ✅ 可提交（不含真实 Key） |
-| `config/portfolio.json` | ❌ 禁止（真实持仓） |
-| `config/*.json` | ❌ 禁止（本地配置） |
-| `.env` | ❌ 禁止（含 API Key） |
-
-> 🚨 如果 API Key 曾误提交或推送到远程仓库，请**立刻**在 DeepSeek 控制台吊销旧 Key 并重新生成。
-
 ---
 
 ## 📁 项目结构
@@ -172,23 +134,15 @@ fund-advisor/
 ├── main.py                  # FastAPI 应用入口（路由、业务逻辑、AI 调用）
 ├── fund_api/
 │   ├── __init__.py          # 行情查询核心模块（实时净值、历史走势、指标计算）
-│   ├── eastmoney_fund_info.py  # 东方财富完整 API 封装（搜索、排行、估值等）
-│   └── eastmoney_favor_api_notes.md  # 东方财富接口笔记
+│   └── eastmoney_fund_info.py  # 东方财富 API 封装
 ├── static/
 │   ├── index.html           # Vue 单页应用
 │   ├── app.js               # 前端业务逻辑
-│   └── style.css            # 毛玻璃风格自定义样式
-├── config.example/          # 可公开的配置模板
-│   ├── agents.json          # Agent 模板示例
-│   ├── skills.json          # Skill 模板示例
-│   ├── portfolio.json       # 持仓数据示例
-│   ├── portfolio_history.json  # 组合快照历史示例
-│   ├── model_config.json    # 模型配置示例
-│   └── app_settings.json    # 应用设置示例
-├── config/.gitkeep          # 保留本地配置目录
+│   └── style.css            # 自定义样式
+├── config.example/          # 配置模板示例
 ├── .env.example             # 环境变量模板
 ├── requirements.txt         # Python 依赖
-├── README.md                # 中文文档（本文件）
+├── README.md                # 中文文档
 └── README_EN.md             # 英文文档
 ```
 
@@ -199,11 +153,7 @@ fund-advisor/
 所有接口统一响应格式：
 
 ```json
-{
-  "success": true,
-  "message": "ok",
-  "data": {}
-}
+{ "success": true, "message": "ok", "data": {} }
 ```
 
 ### 接口列表
@@ -211,20 +161,18 @@ fund-advisor/
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/` | 首页 |
-| GET | `/api/bootstrap` | 初始化数据（持仓、Agent、Skill、模型配置、设置、快照历史） |
-| GET | `/api/portfolio` | 获取持仓 |
-| PUT | `/api/portfolio` | 更新持仓（自动补全基金名称、记录快照） |
-| GET | `/api/funds/realtime` | 基金实时行情（自动记录快照） |
-| GET | `/api/insights` | 投资洞察（含推荐、指标、快照历史） |
-| GET | `/api/fund-market/hot` | 热门基金排行（降级返回持仓） |
-| GET | `/api/agents` | 获取 Agent 列表 |
-| PUT | `/api/agents` | 更新 Agent 配置 |
-| GET | `/api/skills` | 获取 Skill 列表 |
-| PUT | `/api/skills` | 更新 Skill 配置 |
-| GET | `/api/model-config` | 获取模型配置 |
-| PUT | `/api/model-config` | 更新模型配置 |
-| POST | `/api/model-config/test` | 测试模型连接 |
-| POST | `/api/chat` | AI 对话（支持 single / collab 模式） |
+| GET | `/api/bootstrap` | 初始化数据 |
+| GET/PUT | `/api/portfolio` | 持仓管理 |
+| GET | `/api/funds/realtime` | 基金实时行情 |
+| GET | `/api/insights` | 投资洞察（推荐、指标、快照） |
+| GET | `/api/fund-market/hot` | 热门基金排行 |
+| GET/PUT | `/api/agents` | Agent 配置 |
+| GET/PUT | `/api/skills` | Skill 配置 |
+| GET/PUT | `/api/models` | 模型配置 |
+| POST | `/api/models/test` | 测试模型连接 |
+| POST | `/api/chat` | AI 对话（非流式） |
+| POST | `/api/chat/stream` | AI 对话（SSE 流式） |
+| GET/PUT | `/api/quick-phrases` | 快捷短语管理 |
 
 ---
 
@@ -249,28 +197,44 @@ fund-advisor/
 
 ## 📋 更新历史
 
+### v1.3.0（2026-06-03）
+
+- ✨ 新增 DeepSeek 深度思考模式：启用后模型先输出思维链再回答，思考过程流式实时显示
+- ✨ 思考过程可折叠：默认展开实时滚动，点击「思考过程」标题可收起/展开
+- ✨ 思考强度可选：high（标准思考）、max（深度思考）
+- ✨ 快捷短语完整 CRUD：添加、编辑（✎）、删除（×）按钮始终可见
+- ✨ 启动时显示本机/局域网/公网 IP 及访问地址
+- 🎨 快捷短语编辑按钮 ✎ 和删除按钮 × 常驻显示，hover 高亮
+- 🐛 修复页面空白（script 标签丢失）
+- 🔧 清理 README，移除隐私/安全相关章节，仅保留项目信息
+
+### v1.2.0（2026-06-02）
+
+- ✨ 新增 SSE 流式对话，逐 token 输出，类 ChatGPT 打字效果
+- ✨ 新增聊天历史管理：多会话、新建/切换/删除对话、本地持久化
+- ✨ 新增快捷短语：预设常用提问，点击即发，支持增删改查
+- ✨ 新增多模型管理，聊天时可切换不同模型
+- ✨ 新增暗色模式切换
+- 🎨 聊天 UI 重构：左侧历史面板 + 右侧对话区 + 可折叠配置
+- 🐛 修复 Markdown 渲染多余换行问题
+- 🐛 修复模型调用失败时前端未正确显示错误信息
+- 🐛 修复流式请求失败时自动降级为非流式
+
 ### v1.1.0（2026-05-31）
 
-- ✨ 新增组合快照自动记录功能，每次行情刷新自动保存组合盈亏轨迹
-- ✨ 新增基于规则的持仓操作推荐（加仓 / 减仓 / 持有），综合 30 日收益、回撤、涨跌幅指标
-- ✨ 新增行情接口离线降级：公开接口不可用时返回确定性演示数据，保证界面可用
-- ✨ 新增热门基金接口降级：排行接口异常时自动回退为当前持仓列表
+- ✨ 新增组合快照自动记录功能
+- ✨ 新增基于规则的持仓操作推荐
+- ✨ 新增行情/热门接口离线降级
 - ✨ 持仓管理支持自动按净值重算份额
-- 🎨 前端重构为毛玻璃风格 UI，新增自定义 CSS 样式
-- 📝 完善 API 接口说明，新增 `/api/portfolio` GET 接口
-- 📝 项目结构文档补充 `fund_api/eastmoney_fund_info.py` 等文件说明
-- 📝 README 新增更新历史章节
+- 🎨 前端重构为毛玻璃风格 UI
 
 ### v1.0.0（2026-05-29）
 
 - 🎉 初始化项目：FastAPI 后端 + Vue 3 前端
-- 📊 基金持仓管理（CRUD）、实时行情、组合收益分析
-- 📈 图表可视化（盈亏曲线、资产分布、90 日净值走势）
-- 🔥 热门基金排行
-- 🤖 DeepSeek AI 对话，自动注入持仓与行情上下文
-- 👥 多 Agent 协作模式（2~3 Agent 并行 + 汇总 Agent 合并）
+- 📊 基金持仓管理、实时行情、组合收益分析
+- 📈 图表可视化
+- 🤖 DeepSeek AI 对话，多 Agent 协作模式
 - ⚙️ Agent / Skill 模板可视化管理
-- 🔒 本地 JSON 存储，隐私安全
 
 ---
 

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import socket
 import uuid
 from copy import deepcopy
 from datetime import datetime
@@ -14,7 +15,7 @@ import httpx
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -117,6 +118,15 @@ DEFAULT_MODELS = {
 
 DEFAULT_SETTINGS = {"refresh_interval_seconds": 300}
 DEFAULT_HISTORY = {"snapshots": []}
+DEFAULT_QUICK_PHRASES = {
+    "phrases": [
+        {"id": "qp-1", "text": "请根据当前持仓给出本周调仓建议", "active": True},
+        {"id": "qp-2", "text": "分析当前组合风险，给出止盈止损线", "active": True},
+        {"id": "qp-3", "text": "哪些基金可以加仓？给出理由", "active": True},
+        {"id": "qp-4", "text": "给出组合再平衡方案，包含目标仓位", "active": True},
+        {"id": "qp-5", "text": "当前市场行情如何，是否需要降低仓位", "active": True},
+    ]
+}
 
 
 def success(data: Any = None, message: str = "ok") -> dict[str, Any]:
@@ -135,6 +145,7 @@ class Store:
         "models.json": DEFAULT_MODELS,
         "app_settings.json": DEFAULT_SETTINGS,
         "portfolio_history.json": DEFAULT_HISTORY,
+        "quick_phrases.json": DEFAULT_QUICK_PHRASES,
     }
 
     def __init__(self) -> None:
@@ -219,6 +230,14 @@ class ChatRequest(BaseModel):
     include_quotes: bool = True
     include_skills: bool = True
     include_rule: bool = True
+    thinking_enabled: bool = False
+    reasoning_effort: str = "high"
+
+
+class QuickPhrase(BaseModel):
+    id: str | None = None
+    text: str
+    active: bool = True
 
 
 def migrate_model_config() -> None:
@@ -384,7 +403,7 @@ def compose_context(holdings: list[dict[str, Any]], quotes: list[dict[str, Any]]
     return "\n".join(lines)
 
 
-async def call_deepseek(system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, model_id: str | None = None) -> str:
+async def call_deepseek(system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, model_id: str | None = None, thinking_enabled: bool = False, reasoning_effort: str = "high") -> str:
     if not model_id:
         items = store.read("models.json").get("models", [])
         active = [m for m in items if m.get("active")]
@@ -404,12 +423,16 @@ async def call_deepseek(system_prompt: str, user_prompt: str, temperature: float
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if thinking_enabled:
+        payload["thinking"] = {"type": "enabled"}
+        payload["reasoning_effort"] = reasoning_effort or "high"
+    else:
+        payload["temperature"] = temperature
     last_error = ""
     last_status = None
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
         for attempt in range(2):
             try:
                 resp = await client.post(
@@ -418,19 +441,37 @@ async def call_deepseek(system_prompt: str, user_prompt: str, temperature: float
                     json=payload,
                 )
                 last_status = resp.status_code
-                if resp.status_code >= 400:
+                if resp.status_code == 429:
+                    body = resp.text[:500]
+                    last_error = f"请求频率受限 (HTTP 429)，请稍后重试: {body}"
+                    if attempt == 0:
+                        await asyncio.sleep(3)
+                        continue
+                elif resp.status_code >= 400:
                     body = resp.text[:500]
                     last_error = f"HTTP {resp.status_code}: {body}"
-                    continue
+                    if resp.status_code >= 500 and attempt == 0:
+                        await asyncio.sleep(2)
+                        continue
                 data = resp.json()
                 if "choices" not in data:
                     last_error = f"响应缺少 choices: {str(data)[:300]}"
+                    if "error" in data:
+                        err_info = data["error"]
+                        if isinstance(err_info, dict):
+                            msg = err_info.get("message", "")
+                            if "image" in msg.lower() or "图片" in msg or "vision" in msg.lower():
+                                last_error = f"当前模型不支持图片输入: {msg}"
+                                raise RuntimeError(last_error)
+                        last_error = f"API 返回错误: {err_info}"
                     continue
                 return data["choices"][0]["message"]["content"].strip()
             except httpx.TimeoutException:
-                last_error = f"请求超时 (30s)，第 {attempt + 1} 次重试"
+                last_error = f"请求超时 (60s)，第 {attempt + 1} 次重试"
             except httpx.ConnectError:
                 last_error = f"无法连接到 {base_url}，请检查 Base URL"
+            except RuntimeError:
+                raise
             except Exception as exc:
                 last_error = str(exc) or type(exc).__name__
     detail = last_error or "未知错误"
@@ -452,6 +493,7 @@ async def bootstrap() -> dict[str, Any]:
             "models": public_models(),
             "settings": store.read("app_settings.json"),
             "history": store.read("portfolio_history.json"),
+            "quick_phrases": store.read("quick_phrases.json").get("phrases", DEFAULT_QUICK_PHRASES["phrases"]),
         }
     )
 
@@ -630,6 +672,41 @@ async def test_model_by_id(payload: dict[str, str]) -> dict[str, Any]:
         return failure(str(exc))
 
 
+@app.get("/api/quick-phrases")
+async def get_quick_phrases() -> dict[str, Any]:
+    data = store.read("quick_phrases.json")
+    return success(data.get("phrases", DEFAULT_QUICK_PHRASES["phrases"]))
+
+
+@app.put("/api/quick-phrases")
+async def save_quick_phrases(payload: dict[str, Any]) -> dict[str, Any]:
+    phrases = payload.get("phrases", [])
+    for p in phrases:
+        if not p.get("id"):
+            p["id"] = f"qp_{uuid.uuid4().hex[:6]}"
+    store.write("quick_phrases.json", {"phrases": phrases})
+    return success({"phrases": phrases}, "快捷短语已保存")
+
+
+@app.post("/api/quick-phrases")
+async def add_quick_phrase(phrase: QuickPhrase) -> dict[str, Any]:
+    data = store.read("quick_phrases.json")
+    phrases = data.get("phrases", DEFAULT_QUICK_PHRASES["phrases"])
+    phrase.id = f"qp_{uuid.uuid4().hex[:6]}"
+    phrases.append(phrase.model_dump())
+    store.write("quick_phrases.json", {"phrases": phrases})
+    return success({"phrase": phrase.model_dump()}, "快捷短语已添加")
+
+
+@app.delete("/api/quick-phrases/{phrase_id}")
+async def delete_quick_phrase(phrase_id: str) -> dict[str, Any]:
+    data = store.read("quick_phrases.json")
+    phrases = data.get("phrases", DEFAULT_QUICK_PHRASES["phrases"])
+    phrases = [p for p in phrases if p.get("id") != phrase_id]
+    store.write("quick_phrases.json", {"phrases": phrases})
+    return success({"phrases": phrases}, "快捷短语已删除")
+
+
 @app.post("/api/chat")
 async def chat(req: ChatRequest) -> dict[str, Any]:
     try:
@@ -637,6 +714,12 @@ async def chat(req: ChatRequest) -> dict[str, Any]:
         all_skills = [s for s in store.read("skills.json").get("skills", []) if s.get("active")]
         selected_skills = [s for s in all_skills if s["id"] in req.skill_ids]
         model_id = req.model_id or None
+
+        if not all_agents:
+            return failure("没有可用的已激活 Agent，请先在 Agent 管理中添加并激活。")
+        active_models = [m for m in store.read("models.json").get("models", []) if m.get("active")]
+        if not active_models:
+            return failure("没有可用的已激活模型，请先在模型管理中添加并激活模型。")
 
         holdings, quotes = await build_market_snapshot()
         has_context = req.include_portfolio or req.include_quotes or req.include_skills or req.include_rule
@@ -653,7 +736,7 @@ async def chat(req: ChatRequest) -> dict[str, Any]:
                 return failure("协作模式至少选择 2 个已激活 Agent。")
             drafts = []
             for agent in agents:
-                answer = await call_deepseek(agent["system_prompt"], user_prompt, agent["temperature"], agent["max_tokens"], model_id)
+                answer = await call_deepseek(agent["system_prompt"], user_prompt, agent["temperature"], agent["max_tokens"], model_id, req.thinking_enabled, req.reasoning_effort)
                 drafts.append(f"【{agent['name']}】\n{answer}")
             if has_context:
                 merge_prompt = (
@@ -668,17 +751,156 @@ async def chat(req: ChatRequest) -> dict[str, Any]:
                 0.2,
                 1800,
                 model_id,
+                req.thinking_enabled,
+                req.reasoning_effort,
             )
             return success({"reply": final, "drafts": drafts}, "协作建议已生成")
 
         agent = next((a for a in all_agents if a["id"] == req.agent_id), all_agents[0] if all_agents else None)
         if not agent:
             return failure("没有可用的已激活 Agent。")
-        reply = await call_deepseek(agent["system_prompt"], user_prompt, agent["temperature"], agent["max_tokens"], model_id)
+        reply = await call_deepseek(agent["system_prompt"], user_prompt, agent["temperature"], agent["max_tokens"], model_id, req.thinking_enabled, req.reasoning_effort)
         return success({"reply": reply}, "回答已生成")
-    except Exception as exc:
+    except RuntimeError as exc:
         return failure(str(exc))
+    except Exception as exc:
+        return failure(f"聊天处理异常: {str(exc) or type(exc).__name__}")
+
+
+async def stream_deepseek(system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, model_id: str | None = None, thinking_enabled: bool = False, reasoning_effort: str = "high"):
+    if not model_id:
+        items = store.read("models.json").get("models", [])
+        active = [m for m in items if m.get("active")]
+        if not active:
+            raise RuntimeError("没有可用的已激活模型")
+        model_id = active[0]["id"]
+    cfg = effective_model_by_id(model_id)
+    base_url = (cfg.get("base_url") or "").rstrip("/")
+    api_key = cfg.get("api_key") or ""
+    model = cfg.get("model") or "deepseek-chat"
+    if not base_url or not api_key:
+        raise RuntimeError("模型 Base URL 或 API Key 未配置")
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": max_tokens,
+        "stream": True,
+    }
+    if thinking_enabled:
+        payload["thinking"] = {"type": "enabled"}
+        payload["reasoning_effort"] = reasoning_effort or "high"
+    else:
+        payload["temperature"] = temperature
+
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        async with client.stream(
+            "POST",
+            f"{base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload,
+        ) as resp:
+            if resp.status_code >= 400:
+                body = (await resp.aread()).decode("utf-8", errors="replace")[:500]
+                raise RuntimeError(f"HTTP {resp.status_code}: {body}")
+            async for line in resp.aiter_lines():
+                line = line.strip()
+                if not line or not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    reasoning = delta.get("reasoning_content", "")
+                    content = delta.get("content", "")
+                    if reasoning:
+                        yield ("thinking", reasoning)
+                    if content:
+                        yield ("token", content)
+                except json.JSONDecodeError:
+                    continue
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    try:
+        all_agents = [a for a in store.read("agents.json").get("agents", []) if a.get("active")]
+        all_skills = [s for s in store.read("skills.json").get("skills", []) if s.get("active")]
+        selected_skills = [s for s in all_skills if s["id"] in req.skill_ids]
+        model_id = req.model_id or None
+
+        if not all_agents:
+            raise RuntimeError("没有可用的已激活 Agent")
+        active_models = [m for m in store.read("models.json").get("models", []) if m.get("active")]
+        if not active_models:
+            raise RuntimeError("没有可用的已激活模型")
+
+        holdings, quotes = await build_market_snapshot()
+        has_context = req.include_portfolio or req.include_quotes or req.include_skills or req.include_rule
+        if has_context:
+            context = compose_context(holdings, quotes, selected_skills, req.include_portfolio, req.include_quotes, req.include_skills, req.include_rule)
+            user_prompt = f"{context}\n\n用户问题：{req.message}"
+        else:
+            user_prompt = req.message
+
+        agent = next((a for a in all_agents if a["id"] == req.agent_id), all_agents[0] if all_agents else None)
+        if not agent:
+            raise RuntimeError("没有可用的已激活 Agent")
+
+        async def event_generator():
+            try:
+                async for kind, token in stream_deepseek(agent["system_prompt"], user_prompt, agent["temperature"], agent["max_tokens"], model_id, req.thinking_enabled, req.reasoning_effort):
+                    yield f"data: {json.dumps({kind: token}, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+            except RuntimeError as exc:
+                yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+            except Exception as exc:
+                yield f"data: {json.dumps({'error': str(exc) or type(exc).__name__}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(event_generator(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    except Exception as exc:
+        async def error_generator():
+            yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+        return StreamingResponse(error_generator(), media_type="text/event-stream")
+
+
+def get_local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+async def get_public_ip() -> str:
+    for url in ["https://api.ipify.org", "https://ifconfig.me/ip", "https://checkip.amazonaws.com"]:
+        try:
+            async with httpx.AsyncClient(timeout=5) as c:
+                r = await c.get(url)
+                if r.status_code == 200:
+                    return r.text.strip()
+        except Exception:
+            continue
+    return "获取失败"
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="localhost", port=8000, reload=False)
+    port = 8000
+    local_ip = get_local_ip()
+    print("\n" + "=" * 52)
+    print("  DeepSeek 基金投资助手  v1.2.0")
+    print("=" * 52)
+    print(f"  本机访问:   http://127.0.0.1:{port}")
+    print(f"  局域网访问: http://{local_ip}:{port}")
+    pub = asyncio.run(get_public_ip())
+    print(f"  公网 IP:    {pub}")
+    print("=" * 52 + "\n")
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
