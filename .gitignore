@@ -7,6 +7,7 @@ venv/
 # Local secrets and private user data
 .env
 config/*.json
+config/*.back
 !config/.gitkeep
 
 # Local reference project, not part of this app

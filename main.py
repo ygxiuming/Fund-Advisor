@@ -7,7 +7,7 @@ import re
 import socket
 import uuid
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +58,7 @@ DEFAULT_AGENTS = {
             "description": "强调风险控制、回撤管理和长期配置。",
             "system_prompt": f"你是稳健型基金投资顾问。优先控制回撤、避免过度集中、重视长期胜率。{DECISIVE_RULE}",
             "temperature": 0.25,
-            "max_tokens": 1500,
+            "max_tokens": 4000,
             "active": True,
         },
         {
@@ -67,7 +67,7 @@ DEFAULT_AGENTS = {
             "description": "强调趋势择时和较高仓位进攻。",
             "system_prompt": f"你是激进型基金投资顾问。重视趋势强度、资金效率和进攻仓位。{DECISIVE_RULE}",
             "temperature": 0.45,
-            "max_tokens": 1500,
+            "max_tokens": 4000,
             "active": True,
         },
         {
@@ -76,7 +76,7 @@ DEFAULT_AGENTS = {
             "description": "识别集中度、波动和仓位风险。",
             "system_prompt": f"你是基金组合风险评估专家。重点识别仓位、行业集中度、亏损扩大和流动性风险。{DECISIVE_RULE}",
             "temperature": 0.2,
-            "max_tokens": 1300,
+            "max_tokens": 3500,
             "active": True,
         },
     ]
@@ -403,7 +403,8 @@ def compose_context(holdings: list[dict[str, Any]], quotes: list[dict[str, Any]]
     return "\n".join(lines)
 
 
-async def call_deepseek(system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, model_id: str | None = None, thinking_enabled: bool = False, reasoning_effort: str = "high") -> str:
+def resolve_model(model_id: str | None) -> tuple[str, str, str, str]:
+    """Resolve (model_id, base_url, api_key, model) from config, falling back to the first active model."""
     if not model_id:
         items = store.read("models.json").get("models", [])
         active = [m for m in items if m.get("active")]
@@ -415,7 +416,20 @@ async def call_deepseek(system_prompt: str, user_prompt: str, temperature: float
     api_key = cfg.get("api_key") or ""
     model = cfg.get("model") or "deepseek-chat"
     if not base_url or not api_key:
-        raise RuntimeError("DeepSeek Base URL 或 API Key 未配置，请先在模型设置中保存。")
+        raise RuntimeError("模型 Base URL 或 API Key 未配置，请先在模型设置中保存。")
+    return model_id, base_url, api_key, model
+
+
+def effective_max_tokens(max_tokens: int, model: str) -> int:
+    """V4 系列为深度思考模型：小额度会被思考内容耗尽导致正文为空，自动提升下限。"""
+    if "v4" in (model or ""):
+        return max(int(max_tokens or 0), 4096)
+    return int(max_tokens or 0)
+
+
+async def call_deepseek(system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, model_id: str | None = None, thinking_enabled: bool = False, reasoning_effort: str = "high") -> str:
+    model_id, base_url, api_key, model = resolve_model(model_id)
+    max_tokens = effective_max_tokens(max_tokens, model)
 
     payload = {
         "model": model,
@@ -449,6 +463,17 @@ async def call_deepseek(system_prompt: str, user_prompt: str, temperature: float
                         continue
                 elif resp.status_code >= 400:
                     body = resp.text[:500]
+                    low = body.lower()
+                    if resp.status_code == 401 or "authentication" in low or ("api key" in low and "invalid" in low):
+                        raise RuntimeError(
+                            "DeepSeek API Key 无效或已过期（HTTP 401）。请在「模型管理」中重新填写有效 Key"
+                            "（保存后仅内存生效），或在 .env 中更新 DEEPSEEK_API_KEY 后重启服务。"
+                        )
+                    if ("model" in low and ("not exist" in low or "not found" in low or "does not exist" in low)) or "model_not_found" in low:
+                        raise RuntimeError(
+                            f"模型名称可能不正确（HTTP 400）：{body[:200]}。"
+                            "请在「模型管理」中检查 Model ID 是否为官方模型名（如 deepseek-v4-flash / deepseek-v4-pro / deepseek-chat）。"
+                        )
                     last_error = f"HTTP {resp.status_code}: {body}"
                     if resp.status_code >= 500 and attempt == 0:
                         await asyncio.sleep(2)
@@ -510,8 +535,11 @@ async def save_portfolio(items: list[Holding]) -> dict[str, Any]:
         row = item.model_dump()
         row["id"] = row.get("id") or str(uuid.uuid4())
         quote = await get_fund_realtime_async(row["code"])
-        if quote and not row.get("name"):
-            row["name"] = quote["name"]
+        if quote:
+            name = str(row.get("name") or "")
+            # 自动补齐名称；若之前误存了演示名则用真实名称替换
+            if not name or name.startswith("演示基金"):
+                row["name"] = quote.get("name") or name
         holdings.append(row)
     saved = await store.write("portfolio.json", {"holdings": holdings})
     await record_portfolio_snapshot()
@@ -553,10 +581,12 @@ async def insights() -> dict[str, Any]:
 
 @app.get("/api/fund-market/hot")
 async def fund_market_hot() -> dict[str, Any]:
+    today = datetime.now().strftime("%Y-%m-%d")
+    past_365 = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
     url = (
         "https://fund.eastmoney.com/data/rankhandler.aspx"
         "?op=ph&dt=kf&ft=all&rs=&gs=0&sc=6yzf&st=desc"
-        "&sd=2025-05-29&ed=2026-05-29&qdii=&tabSubtype=,,,,,&pi=1&pn=12&dx=1&v=0.129"
+        f"&sd={past_365}&ed={today}&qdii=&tabSubtype=,,,,,&pi=1&pn=12&dx=1&v=0.129"
     )
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -666,7 +696,8 @@ async def test_model_by_id(payload: dict[str, str]) -> dict[str, Any]:
     if not model_id:
         return failure("缺少 model_id")
     try:
-        text = await call_deepseek("只回答：连接成功", "请回复：连接成功", 0, 20, model_id)
+        # max_tokens 不能太小：V4 系列会先输出思考内容，额度太小可能导致正文为空
+        text = await call_deepseek("只回答：连接成功", "请回复：连接成功", 0, 64, model_id)
         return success({"reply": text, "model_id": model_id}, "连接测试成功")
     except Exception as exc:
         return failure(str(exc))
@@ -684,7 +715,7 @@ async def save_quick_phrases(payload: dict[str, Any]) -> dict[str, Any]:
     for p in phrases:
         if not p.get("id"):
             p["id"] = f"qp_{uuid.uuid4().hex[:6]}"
-    store.write("quick_phrases.json", {"phrases": phrases})
+    await store.write("quick_phrases.json", {"phrases": phrases})
     return success({"phrases": phrases}, "快捷短语已保存")
 
 
@@ -694,7 +725,7 @@ async def add_quick_phrase(phrase: QuickPhrase) -> dict[str, Any]:
     phrases = data.get("phrases", DEFAULT_QUICK_PHRASES["phrases"])
     phrase.id = f"qp_{uuid.uuid4().hex[:6]}"
     phrases.append(phrase.model_dump())
-    store.write("quick_phrases.json", {"phrases": phrases})
+    await store.write("quick_phrases.json", {"phrases": phrases})
     return success({"phrase": phrase.model_dump()}, "快捷短语已添加")
 
 
@@ -703,7 +734,7 @@ async def delete_quick_phrase(phrase_id: str) -> dict[str, Any]:
     data = store.read("quick_phrases.json")
     phrases = data.get("phrases", DEFAULT_QUICK_PHRASES["phrases"])
     phrases = [p for p in phrases if p.get("id") != phrase_id]
-    store.write("quick_phrases.json", {"phrases": phrases})
+    await store.write("quick_phrases.json", {"phrases": phrases})
     return success({"phrases": phrases}, "快捷短语已删除")
 
 
@@ -768,18 +799,8 @@ async def chat(req: ChatRequest) -> dict[str, Any]:
 
 
 async def stream_deepseek(system_prompt: str, user_prompt: str, temperature: float, max_tokens: int, model_id: str | None = None, thinking_enabled: bool = False, reasoning_effort: str = "high"):
-    if not model_id:
-        items = store.read("models.json").get("models", [])
-        active = [m for m in items if m.get("active")]
-        if not active:
-            raise RuntimeError("没有可用的已激活模型")
-        model_id = active[0]["id"]
-    cfg = effective_model_by_id(model_id)
-    base_url = (cfg.get("base_url") or "").rstrip("/")
-    api_key = cfg.get("api_key") or ""
-    model = cfg.get("model") or "deepseek-chat"
-    if not base_url or not api_key:
-        raise RuntimeError("模型 Base URL 或 API Key 未配置")
+    model_id, base_url, api_key, model = resolve_model(model_id)
+    max_tokens = effective_max_tokens(max_tokens, model)
 
     payload = {
         "model": model,
@@ -805,6 +826,17 @@ async def stream_deepseek(system_prompt: str, user_prompt: str, temperature: flo
         ) as resp:
             if resp.status_code >= 400:
                 body = (await resp.aread()).decode("utf-8", errors="replace")[:500]
+                low = body.lower()
+                if resp.status_code == 401 or "authentication" in low or ("api key" in low and "invalid" in low):
+                    raise RuntimeError(
+                        "DeepSeek API Key 无效或已过期（HTTP 401）。请在「模型管理」中重新填写有效 Key"
+                        "（保存后仅内存生效），或在 .env 中更新 DEEPSEEK_API_KEY 后重启服务。"
+                    )
+                if ("model" in low and ("not exist" in low or "not found" in low or "does not exist" in low)) or "model_not_found" in low:
+                    raise RuntimeError(
+                        f"模型名称可能不正确（HTTP 400）：{body[:200]}。"
+                        "请在「模型管理」中检查 Model ID 是否为官方模型名（如 deepseek-v4-flash / deepseek-v4-pro / deepseek-chat）。"
+                    )
                 raise RuntimeError(f"HTTP {resp.status_code}: {body}")
             async for line in resp.aiter_lines():
                 line = line.strip()
@@ -815,7 +847,8 @@ async def stream_deepseek(system_prompt: str, user_prompt: str, temperature: flo
                     break
                 try:
                     chunk = json.loads(data_str)
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    choices = chunk.get("choices") or [{}]
+                    delta = choices[0].get("delta", {}) or {}
                     reasoning = delta.get("reasoning_content", "")
                     content = delta.get("content", "")
                     if reasoning:
@@ -846,7 +879,49 @@ async def chat_stream(req: ChatRequest):
             context = compose_context(holdings, quotes, selected_skills, req.include_portfolio, req.include_quotes, req.include_skills, req.include_rule)
             user_prompt = f"{context}\n\n用户问题：{req.message}"
         else:
+            context = ""
             user_prompt = req.message
+
+        def sse(payload: Any) -> str:
+            return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+        stream_headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+        if req.mode == "collab":
+            ids = req.agent_ids[:3]
+            agents = [a for a in all_agents if a["id"] in ids]
+            if len(agents) < 2:
+                raise RuntimeError("协作模式至少选择 2 个已激活 Agent。")
+
+            async def collab_generator():
+                try:
+                    drafts = []
+                    for agent in agents:
+                        answer = await call_deepseek(
+                            agent["system_prompt"], user_prompt, agent["temperature"], agent["max_tokens"],
+                            model_id, req.thinking_enabled, req.reasoning_effort,
+                        )
+                        drafts.append({"name": agent["name"], "content": answer})
+                    yield sse({"drafts": drafts})
+                    if has_context:
+                        merge_prompt = (
+                            f"{context}\n\n用户问题：{req.message}\n\n以下是多个 Agent 的初步建议，请合并成最终建议。"
+                            "必须给出统一操作清单，不保留分歧，不输出模糊表达。\n\n"
+                            + "\n\n".join(f"【{d['name']}】\n{d['content']}" for d in drafts)
+                        )
+                    else:
+                        merge_prompt = (
+                            f"用户问题：{req.message}\n\n以下是多个 Agent 的初步建议，请合并成最终建议。\n\n"
+                            + "\n\n".join(f"【{d['name']}】\n{d['content']}" for d in drafts)
+                        )
+                    merge_system = f"你是投资建议汇总 Agent。你负责把多名专家意见压缩成明确、可执行的最终方案。{DECISIVE_RULE if req.include_rule else ''}"
+                    async for kind, token in stream_deepseek(merge_system, merge_prompt, 0.2, 1800, model_id, req.thinking_enabled, req.reasoning_effort):
+                        yield sse({kind: token})
+                    yield "data: [DONE]\n\n"
+                except Exception as exc:
+                    yield sse({"error": str(exc)})
+
+            return StreamingResponse(collab_generator(), media_type="text/event-stream", headers=stream_headers)
 
         agent = next((a for a in all_agents if a["id"] == req.agent_id), all_agents[0] if all_agents else None)
         if not agent:
@@ -855,14 +930,14 @@ async def chat_stream(req: ChatRequest):
         async def event_generator():
             try:
                 async for kind, token in stream_deepseek(agent["system_prompt"], user_prompt, agent["temperature"], agent["max_tokens"], model_id, req.thinking_enabled, req.reasoning_effort):
-                    yield f"data: {json.dumps({kind: token}, ensure_ascii=False)}\n\n"
+                    yield sse({kind: token})
                 yield "data: [DONE]\n\n"
             except RuntimeError as exc:
-                yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+                yield sse({"error": str(exc)})
             except Exception as exc:
-                yield f"data: {json.dumps({'error': str(exc) or type(exc).__name__}, ensure_ascii=False)}\n\n"
+                yield sse({"error": str(exc) or type(exc).__name__})
 
-        return StreamingResponse(event_generator(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        return StreamingResponse(event_generator(), media_type="text/event-stream", headers=stream_headers)
     except Exception as exc:
         async def error_generator():
             yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
@@ -881,14 +956,14 @@ def get_local_ip() -> str:
 
 
 async def get_public_ip() -> str:
-    for url in ["https://api.ipify.org", "https://ifconfig.me/ip", "https://checkip.amazonaws.com"]:
-        try:
-            async with httpx.AsyncClient(timeout=5) as c:
-                r = await c.get(url)
+    async with httpx.AsyncClient(timeout=5) as client:
+        for url in ["https://api.ipify.org", "https://ifconfig.me/ip", "https://checkip.amazonaws.com"]:
+            try:
+                r = await client.get(url)
                 if r.status_code == 200:
                     return r.text.strip()
-        except Exception:
-            continue
+            except Exception:
+                continue
     return "获取失败"
 
 
@@ -896,7 +971,7 @@ if __name__ == "__main__":
     port = 8000
     local_ip = get_local_ip()
     print("\n" + "=" * 52)
-    print("  DeepSeek 基金投资助手  v1.2.0")
+    print("  DeepSeek 基金投资助手  v1.3.0")
     print("=" * 52)
     print(f"  本机访问:   http://127.0.0.1:{port}")
     print(f"  局域网访问: http://{local_ip}:{port}")

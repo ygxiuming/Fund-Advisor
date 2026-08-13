@@ -8,28 +8,44 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <link rel="stylesheet" href="/static/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css?v=2.1" />
   </head>
   <body>
     <div id="app" v-cloak>
       <div class="app-shell">
         <aside :class="['sidebar', { open: sidebarOpen }]">
           <div class="sidebar-brand">
-            <h1>基金投资助手</h1>
-            <p>DeepSeek + 多 Agent 工作台</p>
+            <div class="brand-logo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            </div>
+            <div class="brand-text">
+              <h1>基金投资助手</h1>
+              <p>DeepSeek · 多 Agent 工作台 <span class="brand-version">v1.5</span></p>
+            </div>
           </div>
           <nav class="sidebar-nav">
-            <button v-for="tab in tabs" :key="tab.id" :class="['nav-item', { active: activeTab === tab.id }]" @click="switchTab(tab.id)">
-              <svg v-if="tab.id==='portfolio'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
-              <svg v-if="tab.id==='insights'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-6"/></svg>
-              <svg v-if="tab.id==='chat'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              <svg v-if="tab.id==='agents'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-              <svg v-if="tab.id==='skills'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-              <svg v-if="tab.id==='model'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              {{ tab.name }}
-            </button>
+            <template v-for="g in tabGroups" :key="g">
+              <div class="nav-group-title">{{ g }}</div>
+              <button v-for="tab in tabs.filter(t => t.group === g)" :key="tab.id" :class="['nav-item', { active: activeTab === tab.id }]" @click="switchTab(tab.id)">
+                <svg v-if="tab.id==='portfolio'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+                <svg v-if="tab.id==='insights'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-6"/></svg>
+                <svg v-if="tab.id==='chat'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <svg v-if="tab.id==='agents'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <svg v-if="tab.id==='skills'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                <svg v-if="tab.id==='model'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                <span class="nav-item-text">{{ tab.name }}<small>{{ tab.desc }}</small></span>
+              </button>
+            </template>
           </nav>
           <div class="sidebar-footer">
+            <div v-if="activeModels.length" class="sidebar-model">
+              <span class="sidebar-model-dot"></span>
+              <div class="sidebar-model-info">
+                <span class="sidebar-model-label">当前模型</span>
+                <span class="sidebar-model-name">{{ activeModels[0].name }}</span>
+              </div>
+            </div>
             <button class="sidebar-footer-btn" @click="toggleTheme">
               <svg v-if="theme==='light'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
               <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
@@ -45,7 +61,7 @@
         <button class="sidebar-mobile-toggle" @click="sidebarOpen = !sidebarOpen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
-        <div class="main-content">
+        <div class="main-content" ref="mainContent">
           <div v-if="toast.text" :class="['toast', toast.ok ? 'toast-ok' : 'toast-bad']">{{ toast.text }}</div>
 
           <!-- Portfolio -->
@@ -54,14 +70,14 @@
               <div><h2 class="section-title">持仓管理</h2><p class="section-desc">管理基金持仓、实时行情与盈亏追踪</p></div>
               <div class="section-actions">
                 <button class="btn btn-primary" @click="openHolding()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>添加持仓</button>
-                <button class="btn btn-secondary" @click="refreshQuotes()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新行情</button>
-                <button class="btn btn-secondary" @click="savePortfolio()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>保存持仓</button>
+                <button class="btn btn-secondary" :disabled="quotesLoading" @click="refreshQuotes()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>{{ quotesLoading ? '刷新中...' : '刷新行情' }}</button>
+                <button class="btn btn-secondary" :disabled="savingPortfolio" @click="savePortfolio()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>{{ savingPortfolio ? '保存中...' : '保存持仓' }}</button>
               </div>
             </div>
             <div class="metric-grid mb-5">
-              <div class="metric-card"><div class="metric-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><span class="metric-label">总成本</span><strong class="metric-value">{{ money(summary.cost) }}</strong></div>
-              <div class="metric-card"><div class="metric-icon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg></div><span class="metric-label">当前市值</span><strong class="metric-value">{{ money(summary.value) }}</strong></div>
-              <div class="metric-card"><div class="metric-icon rose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div><span class="metric-label">浮动盈亏</span><strong class="metric-value" :class="gainClass(summary.pnl)">{{ money(summary.pnl) }}</strong></div>
+              <div class="metric-card"><div class="metric-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><span class="metric-label">总成本</span><strong class="metric-value">{{ moneyShort(summary.cost) }}</strong></div>
+              <div class="metric-card"><div class="metric-icon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg></div><span class="metric-label">当前市值</span><strong class="metric-value">{{ moneyShort(summary.value) }}</strong></div>
+              <div class="metric-card"><div class="metric-icon rose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div><span class="metric-label">浮动盈亏</span><strong class="metric-value" :class="gainClass(summary.pnl)">{{ moneyShort(summary.pnl) }}</strong></div>
               <div class="metric-card"><div class="metric-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div><span class="metric-label">收益率</span><strong class="metric-value" :class="gainClass(summary.rate)">{{ pct(summary.rate) }}</strong></div>
             </div>
             <div class="mb-4 flex flex-wrap items-center gap-3">
@@ -69,6 +85,17 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input v-model="searchQuery" placeholder="搜索代码或名称...">
               </div>
+              <span class="data-meta">最近更新：{{ lastUpdateText || '—' }}</span>
+              <label class="auto-refresh-toggle" title="按设置间隔自动刷新行情">
+                <input type="checkbox" v-model="autoRefresh"> 自动刷新{{ autoRefresh ? `（每 ${autoRefreshSeconds}s）` : '' }}
+              </label>
+              <div class="ml-auto flex flex-wrap items-center gap-2">
+                <button class="btn btn-ghost btn-sm" @click="exportTemplate" title="下载 CSV 导入模板"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导入模板</button>
+                <button class="btn btn-secondary btn-sm" @click="importCSV" title="从 CSV 文件导入持仓"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>导入 CSV</button>
+                <button class="btn btn-ghost btn-sm" @click="exportPortfolioCSV" title="导出当前持仓明细为 CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出 CSV</button>
+                <button class="btn btn-danger btn-sm" @click="clearAllHoldings" title="清空全部持仓"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清空持仓</button>
+              </div>
+              <input ref="csvFileInput" type="file" accept=".csv,text/csv" style="display:none" @change="onImportFile">
             </div>
             <div v-if="!holdings.length" class="empty-state">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
@@ -77,18 +104,34 @@
             <div v-else class="table-shell">
               <table class="holdings-table text-sm">
                 <thead>
-                  <tr><th class="th">代码</th><th class="th">名称</th><th class="th">成本</th><th class="th">份额</th><th class="th">净值</th><th class="th">涨跌幅</th><th class="th">更新时间</th><th class="th">市值</th><th class="th">盈亏</th><th class="th">收益率</th><th class="th">备注</th><th class="th action-col">操作</th></tr>
+                  <tr>
+                    <th class="th sortable" @click="toggleSort('code')">代码<span class="sort-ind">{{ sortIndicator('code') }}</span></th>
+                    <th class="th sortable" @click="toggleSort('name')">名称<span class="sort-ind">{{ sortIndicator('name') }}</span></th>
+                    <th class="th sortable" @click="toggleSort('cost')">成本<span class="sort-ind">{{ sortIndicator('cost') }}</span></th>
+                    <th class="th sortable" @click="toggleSort('shares')">份额<span class="sort-ind">{{ sortIndicator('shares') }}</span></th>
+                    <th class="th sortable" @click="toggleSort('nav')">净值<span class="sort-ind">{{ sortIndicator('nav') }}</span></th>
+                    <th class="th sortable" @click="toggleSort('percent')">涨跌幅<span class="sort-ind">{{ sortIndicator('percent') }}</span></th>
+                    <th class="th">更新时间</th>
+                    <th class="th sortable" @click="toggleSort('marketValue')">市值<span class="sort-ind">{{ sortIndicator('marketValue') }}</span></th>
+                    <th class="th sortable" @click="toggleSort('weight')">占比<span class="sort-ind">{{ sortIndicator('weight') }}</span></th>
+                    <th class="th sortable" @click="toggleSort('pnl')">盈亏<span class="sort-ind">{{ sortIndicator('pnl') }}</span></th>
+                    <th class="th sortable" @click="toggleSort('rate')">收益率<span class="sort-ind">{{ sortIndicator('rate') }}</span></th>
+                    <th class="th">备注</th>
+                    <th class="th action-col">操作</th>
+                  </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(h, i) in holdingsView" :key="h.id">
+                  <tr v-if="!holdingsView.length"><td class="td" colspan="13" style="text-align:center;padding:32px;color:var(--color-text-muted)">未找到匹配「{{ searchQuery }}」的持仓</td></tr>
+                  <tr v-for="(h, i) in sortedHoldingsView" :key="h.id">
                     <td class="td font-semibold">{{ h.code }}</td>
-                    <td class="td">{{ h.name || h.quote?.name || '-' }}</td>
+                    <td class="td">{{ h.name || h.quote?.name || '-' }}<span v-if="h.quote?.source === 'mock'" class="badge badge-warn" title="行情接口不可用，当前为演示数据">演示</span></td>
                     <td class="td">{{ money(h.cost) }}</td>
                     <td class="td">{{ number(h.shares, 2) }}</td>
                     <td class="td">{{ h.quote?.nav ? number(h.quote.nav, 4) : '-' }}</td>
                     <td class="td" :class="gainClass(h.quote?.percent)">{{ h.quote?.percent === undefined ? '-' : pct(h.quote.percent) }}</td>
                     <td class="td" style="color:var(--color-text-muted)">{{ h.quote?.update_time || '-' }}</td>
                     <td class="td">{{ money(h.marketValue) }}</td>
+                    <td class="td" style="color:var(--color-text-secondary)">{{ number(h.weight, 1) }}%</td>
                     <td class="td" :class="gainClass(h.pnl)">{{ money(h.pnl) }}</td>
                     <td class="td" :class="gainClass(h.rate)">{{ pct(h.rate) }}</td>
                     <td class="td">{{ h.note || '-' }}</td>
@@ -99,6 +142,22 @@
                     </td>
                   </tr>
                 </tbody>
+                <tfoot v-if="holdings.length">
+                  <tr class="table-total">
+                    <td class="td" colspan="2">合计（{{ summary.count }} 只）</td>
+                    <td class="td">{{ money(summary.cost) }}</td>
+                    <td class="td">{{ number(summary.shares, 2) }}</td>
+                    <td class="td">—</td>
+                    <td class="td">—</td>
+                    <td class="td">—</td>
+                    <td class="td">{{ money(summary.value) }}</td>
+                    <td class="td">{{ number(100, 1) }}%</td>
+                    <td class="td" :class="gainClass(summary.pnl)">{{ money(summary.pnl) }}</td>
+                    <td class="td" :class="gainClass(summary.rate)">{{ pct(summary.rate) }}</td>
+                    <td class="td">—</td>
+                    <td class="td"></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           </section>
@@ -108,38 +167,119 @@
             <div class="section-header">
               <div><h2 class="section-title">洞察图表</h2><p class="section-desc">盈亏曲线、资产分布与投资建议</p></div>
               <div class="section-actions">
-                <button class="btn btn-primary" @click="loadInsights()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新洞察</button>
-                <button class="btn btn-secondary" @click="loadHotFunds()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.5-2.5 1.5-3.5"/></svg>刷新天天基金热点</button>
+                <span class="data-meta">洞察：{{ insightsUpdateText || '未加载' }}</span>
+                <button class="btn btn-primary" :disabled="insightsLoading" @click="loadInsights()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>{{ insightsLoading ? '加载中...' : '刷新洞察' }}</button>
+                <button class="btn btn-secondary" :disabled="hotLoading" @click="loadHotFunds()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.5-2.5 1.5-3.5"/></svg>{{ hotLoading ? '加载中...' : '刷新天天基金热点' }}</button>
+              </div>
+            </div>
+            <!-- 组合诊断条 -->
+            <div v-if="portfolioDiagnosis" class="diagnosis-grid mb-5">
+              <div class="diagnosis-card">
+                <span class="diagnosis-label">组合收益率</span>
+                <strong class="diagnosis-value" :class="gainClass(portfolioDiagnosis.rate)">{{ pct(portfolioDiagnosis.rate) }}</strong>
+              </div>
+              <div class="diagnosis-card">
+                <span class="diagnosis-label">最大回撤</span>
+                <strong class="diagnosis-value text-fall">{{ pct(portfolioDiagnosis.maxDrawdown) }}</strong>
+              </div>
+              <div class="diagnosis-card">
+                <span class="diagnosis-label">仓位集中度</span>
+                <strong class="diagnosis-value">{{ number(portfolioDiagnosis.maxWeight, 1) }}%</strong>
+                <span class="diagnosis-sub">最大单只持仓占比</span>
+              </div>
+              <div class="diagnosis-card">
+                <span class="diagnosis-label">当日平均波动</span>
+                <strong class="diagnosis-value">{{ number(portfolioDiagnosis.avgMove, 2) }}%</strong>
+              </div>
+              <div class="diagnosis-card">
+                <span class="diagnosis-label">亏损持仓</span>
+                <strong class="diagnosis-value" :class="portfolioDiagnosis.losingCount ? 'text-fall' : ''">{{ portfolioDiagnosis.losingCount }} / {{ (insights?.funds || []).length }} 只</strong>
+              </div>
+              <div class="diagnosis-card diagnosis-risk" :class="'risk-' + portfolioDiagnosis.level">
+                <span class="diagnosis-label">组合风险评级</span>
+                <strong class="diagnosis-value">{{ portfolioDiagnosis.level }}风险</strong>
+                <span class="diagnosis-sub">评分 {{ portfolioDiagnosis.score }} / 100</span>
               </div>
             </div>
             <div class="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
-              <div class="panel-card"><h2 class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>组合盈亏曲线</h2><canvas id="pnlChart" class="canvas-chart"></canvas></div>
-              <div class="panel-card"><h2 class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>资产分布</h2><canvas id="allocationChart" class="canvas-chart"></canvas></div>
-              <div class="panel-card xl:col-span-2"><h2 class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-6"/></svg>持仓基金近 90 日净值走势</h2><canvas id="fundTrendChart" class="canvas-chart"></canvas></div>
+              <div class="panel-card"><div class="panel-head-row"><h2 class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>组合盈亏曲线</h2><button class="btn btn-ghost btn-sm" @click="exportChart('pnlChart', '组合盈亏曲线')" title="导出 PNG"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button></div><canvas id="pnlChart" class="canvas-chart"></canvas></div>
+              <div class="panel-card"><div class="panel-head-row"><h2 class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>资产分布</h2><button class="btn btn-ghost btn-sm" @click="exportChart('allocationChart', '资产分布')" title="导出 PNG"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button></div><canvas id="allocationChart" class="canvas-chart"></canvas></div>
+              <div class="panel-card"><div class="panel-head-row"><h2 class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>持仓盈亏贡献</h2><button v-if="contributionData.length" class="btn btn-ghost btn-sm" @click="exportChart('contributionChart', '持仓盈亏贡献')" title="导出 PNG"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button></div>
+                <div v-if="!contributionData.length" class="empty-state"><h3>暂无数据</h3><p>点击「刷新洞察」后查看</p></div>
+                <canvas v-else id="contributionChart" class="canvas-chart"></canvas>
+              </div>
+              <div class="panel-card">
+                <h2 class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>风险诊断</h2>
+                <div v-if="!portfolioDiagnosis" class="empty-state"><h3>暂无数据</h3><p>点击「刷新洞察」后查看</p></div>
+                <ul v-else class="risk-list">
+                  <li><span class="risk-item-label">最大回撤</span><span class="risk-item-value" :class="portfolioDiagnosis.maxDrawdown < -15 ? 'text-fall' : ''">{{ pct(portfolioDiagnosis.maxDrawdown) }}</span></li>
+                  <li><span class="risk-item-label">仓位集中度</span><span class="risk-item-value" :class="portfolioDiagnosis.maxWeight > 35 ? 'text-fall' : ''">{{ number(portfolioDiagnosis.maxWeight, 1) }}%</span></li>
+                  <li><span class="risk-item-label">亏损持仓占比</span><span class="risk-item-value">{{ number(portfolioDiagnosis.losingPct, 0) }}%</span></li>
+                  <li><span class="risk-item-label">快照数量</span><span class="risk-item-value">{{ portfolioDiagnosis.snapshotCount }} 条</span></li>
+                </ul>
+                <p class="risk-tip">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  {{ riskTip }}
+                </p>
+              </div>
+              <div class="panel-card xl:col-span-2"><div class="panel-head-row"><h2 class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-6"/></svg>持仓基金近 90 日净值走势</h2><button class="btn btn-ghost btn-sm" @click="exportChart('fundTrendChart', '净值走势')" title="导出 PNG"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button></div><canvas id="fundTrendChart" class="canvas-chart"></canvas></div>
               <div class="panel-card xl:col-span-2">
-                <h2 class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>持仓推荐</h2>
-                <div v-if="!recommendations.length" class="empty-state"><h3>暂无推荐</h3><p>点击「刷新洞察」生成投资建议</p></div>
-                <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  <article v-for="r in recommendations" :key="r.code" :class="['rec-card', 'action-' + recActionClass(r.action)]">
-                    <div class="mb-2 flex items-center justify-between gap-2"><strong>{{ r.name || r.code }}</strong><span :class="['rec-action', recActionClass(r.action)]">{{ r.action }}</span></div>
-                    <div style="font-size:12px;color:var(--color-text-muted)">{{ r.code }} · 评分 {{ number(r.score, 1) }}</div>
-                    <p style="margin-top:10px;font-size:13px;line-height:1.7;color:var(--color-text-secondary)">{{ r.reason }}</p>
+                <div class="panel-head-row">
+                  <h2 class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>持仓推荐</h2>
+                  <div v-if="recommendationsEnriched.length" class="rec-summary-bar">
+                    <span class="rec-summary-label">操作汇总</span>
+                    <span v-for="g in recSummaryGroups" :key="g.label" :class="['rec-action', g.cls]">{{ g.label }} {{ g.count }}</span>
+                    <button class="btn btn-secondary btn-sm" @click="copyActionList"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>复制清单</button>
+                    <button class="btn btn-primary btn-sm" @click="sendActionListToAI"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>发送 AI 分析</button>
+                  </div>
+                </div>
+                <div v-if="!recommendationsEnriched.length" class="empty-state"><h3>暂无推荐</h3><p>点击「刷新洞察」生成投资建议</p></div>
+                <div v-else class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  <article v-for="r in recommendationsEnriched" :key="r.code" :class="['rec-card', 'action-' + recActionClass(r.action)]">
+                    <div class="rec-card-top">
+                      <div class="rec-card-title">
+                        <strong>{{ r.name || r.code }}</strong>
+                        <span class="rec-card-code">{{ r.code }}</span>
+                      </div>
+                      <span :class="['rec-action', recActionClass(r.action)]">{{ r.action }}</span>
+                    </div>
+                    <div class="rec-card-metrics">
+                      <div><span>净值</span><b>{{ r.nav ? number(r.nav, 4) : '-' }}</b></div>
+                      <div><span>当日</span><b :class="gainClass(r.percent)">{{ r.percent === undefined ? '-' : pct(r.percent) }}</b></div>
+                      <div><span>收益率</span><b :class="gainClass(r.pnl_rate)">{{ r.pnl_rate === undefined ? '-' : pct(r.pnl_rate) }}</b></div>
+                      <div><span>30日</span><b :class="gainClass(r.metrics?.return_30d)">{{ r.metrics?.return_30d === undefined ? '-' : pct(r.metrics.return_30d) }}</b></div>
+                    </div>
+                    <div class="rec-score-row">
+                      <span class="rec-score-label">综合评分</span>
+                      <div class="rec-score-bar"><i :class="'score-' + recScoreLevel(r.score)" :style="{ width: recScorePct(r.score) + '%' }"></i></div>
+                      <span class="rec-score-num">{{ number(r.score, 0) }}</span>
+                    </div>
+                    <p class="rec-reason">{{ r.reason }}</p>
                   </article>
                 </div>
               </div>
               <div class="panel-card xl:col-span-2">
-                <h2 class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.5-2.5 1.5-3.5"/></svg>天天基金实时热点</h2>
+                <div class="panel-head-row">
+                  <h2 class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.5-2.5 1.5-3.5"/></svg>天天基金实时热点</h2>
+                  <span class="data-meta" v-if="hotSource">{{ hotSource }}</span>
+                </div>
                 <div v-if="!hotFunds.length" class="empty-state"><h3>暂无数据</h3><p>点击「刷新天天基金热点」获取热门基金</p></div>
-                <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div v-else class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   <article v-for="f in hotFunds" :key="f.code" class="hot-card">
-                    <div class="flex items-start justify-between gap-2"><strong style="font-size:13px">{{ f.name }}</strong><span style="font-size:11px;color:var(--color-text-muted)">{{ f.code }}</span></div>
+                    <div class="hot-card-head">
+                      <div class="hot-card-title">
+                        <strong>{{ f.name }}</strong>
+                        <span>{{ f.code }}</span>
+                      </div>
+                      <button class="hot-add-btn" title="加入持仓" @click="quickAddHolding(f)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>持仓</button>
+                    </div>
                     <div class="mt-3 grid grid-cols-2 gap-2" style="font-size:12px">
                       <div><span>日涨跌</span><b :class="gainClass(f.day_return)">{{ pct(f.day_return) }}</b></div>
                       <div><span>近1月</span><b :class="gainClass(f.month_return)">{{ valueOrDash(f.month_return, '%') }}</b></div>
                       <div><span>近6月</span><b :class="gainClass(f.half_year_return)">{{ valueOrDash(f.half_year_return, '%') }}</b></div>
                       <div><span>近1年</span><b :class="gainClass(f.year_return)">{{ valueOrDash(f.year_return, '%') }}</b></div>
                     </div>
-                    <p style="margin-top:10px;font-size:11px;line-height:1.5;color:var(--color-text-muted)">{{ f.reason }}</p>
+                    <p class="hot-reason">{{ f.reason }}</p>
                   </article>
                 </div>
               </div>
@@ -149,7 +289,8 @@
           <!-- Chat -->
           <section v-show="activeTab === 'chat'" class="chat-page">
             <div class="chat-page-layout">
-              <aside class="chat-history-panel">
+              <div v-if="chatHistoryOpen" class="chat-history-overlay" @click="chatHistoryOpen = false"></div>
+              <aside :class="['chat-history-panel', { open: chatHistoryOpen }]">
                 <div class="chat-history-header">
                   <button class="btn btn-primary btn-sm chat-new-btn" @click="newConversation">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -178,10 +319,15 @@
               <div class="chat-main-area">
                 <div class="chat-toolbar">
                   <div class="chat-toolbar-left">
+                    <button class="btn btn-ghost btn-sm chat-history-toggle" @click="chatHistoryOpen = !chatHistoryOpen" title="聊天历史">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                    </button>
                     <span class="chat-toolbar-title">{{ currentConversationTitle }}</span>
+                    <span v-if="chat.mode === 'collab'" class="badge badge-collab">协作</span>
                   </div>
                   <div class="chat-toolbar-right">
                     <button class="btn btn-ghost btn-sm" @click="exportChat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出</button>
+                    <button v-if="sendingChat" class="btn btn-danger btn-sm" @click="stopChat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>停止生成</button>
                     <button :class="['btn btn-ghost btn-sm', { 'btn-active': showChatConfig }]" @click="showChatConfig = !showChatConfig">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9"/></svg>
                       设置
@@ -203,9 +349,10 @@
                       <label class="label">当前 Agent</label>
                       <select v-model="chat.agent_id" class="input"><option v-for="a in activeAgents" :key="a.id" :value="a.id">{{ a.name }}</option></select>
                     </div>
-                    <div class="chat-config-group">
-                      <label class="label">协作 Agent</label>
+                    <div v-if="chat.mode === 'collab'" class="chat-config-group">
+                      <label class="label">协作 Agent（至少 2 个）</label>
                       <label v-for="a in activeAgents" :key="a.id" style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;color:var(--color-text-secondary);cursor:pointer"><input type="checkbox" :value="a.id" v-model="chat.agent_ids"> {{ a.name }}</label>
+                      <p v-if="chat.agent_ids.length < 2" class="config-hint">请至少勾选 2 个 Agent 参与协作分析</p>
                     </div>
                     <div class="chat-config-group">
                       <label class="label">技能模板</label>
@@ -233,6 +380,9 @@
                   <div v-if="!messages.length" class="empty-state chat-welcome">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="64" height="64"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                     <h3>开始对话</h3><p>输入你的投资问题，AI 顾问将给出明确建议</p>
+                    <div v-if="quickPhrases.length" class="chat-suggestions">
+                      <button v-for="qp in quickPhrases.slice(0, 4)" :key="qp.id" @click="useQuickPhrase(qp)">{{ qp.text }}</button>
+                    </div>
                   </div>
                   <div v-for="m in messages" :key="m.id" :class="['chat-msg', m.role]">
                     <div class="chat-avatar" :class="m.role === 'user' ? 'human' : (m.role === 'error' ? 'err' : 'ai')">{{ m.role === 'user' ? '我' : (m.role === 'error' ? '!' : 'AI') }}</div>
@@ -240,6 +390,19 @@
                       <div :class="['chat-bubble', m.role === 'error' ? 'bubble-error' : '', (sendingChat && m.role === 'assistant' && m === messages[messages.length-1]) ? 'streaming-cursor' : '']">
                         <template v-if="m.role === 'user'"><span style="white-space:pre-wrap">{{ m.text }}</span></template>
                         <template v-else>
+                          <div v-if="m.drafts && m.drafts.length" class="drafts-block">
+                            <div class="drafts-header" @click="m._draftsOpen = !m._draftsOpen">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                              <span>协作 Agent 草案（{{ m.drafts.length }}）</span>
+                              <span :class="['thinking-arrow', { open: m._draftsOpen }]">▸</span>
+                            </div>
+                            <div v-show="m._draftsOpen" class="drafts-content">
+                              <div v-for="d in m.drafts" :key="d.name" class="draft-item">
+                                <div class="draft-name">{{ d.name }}</div>
+                                <div class="draft-body" v-html="renderMarkdown(d.content)"></div>
+                              </div>
+                            </div>
+                          </div>
                           <div v-if="m.thinkingText" class="thinking-block">
                             <div class="thinking-header" @click="m._thinkingOpen = !m._thinkingOpen">
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
@@ -251,7 +414,12 @@
                           <span v-html="renderMarkdown(m.text)"></span>
                         </template>
                       </div>
-                      <div class="chat-time">{{ m.time }}</div>
+                      <div class="chat-msg-meta">
+                        <span class="chat-time">{{ m.time }}</span>
+                        <button v-if="m.text" class="chat-copy-btn" title="复制内容" @click="copyText(m.text)">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -269,8 +437,11 @@
                   </div>
                   <textarea v-model="chat.message" placeholder="例如：请根据当前持仓给出本周调仓建议" @keydown.enter.exact.prevent="sendChat" rows="2"></textarea>
                   <div class="chat-input-actions">
-                    <span class="chat-input-hint">Enter 发送 · Shift+Enter 换行</span>
-                    <button class="btn btn-primary btn-sm" :disabled="sendingChat" @click="sendChat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>发送</button>
+                    <span class="chat-input-hint">Enter 发送 · Shift+Enter 换行{{ chat.mode === 'collab' ? ' · 协作模式会并行生成草案后汇总' : '' }}</span>
+                    <div class="chat-input-btns">
+                      <button v-if="sendingChat" class="btn btn-danger btn-sm" @click="stopChat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>停止</button>
+                      <button class="btn btn-primary btn-sm" :disabled="sendingChat" @click="sendChat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>发送</button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -336,8 +507,13 @@
                 <button class="btn btn-secondary" @click="saveModels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>保存全部</button>
               </div>
             </div>
-            <div class="mb-4" style="border-radius:var(--radius-md);border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.06);padding:14px;font-size:13px;line-height:1.7;color:var(--color-text-secondary)">
-              API Key 仅保存在当前后端进程内存中，不写入 JSON 文件。推荐放在本地 <code>.env</code> 中；重启后失效。
+            <div class="mb-4 model-tip">
+              <strong>🔑 API Key 使用说明</strong>
+              <ul style="margin-top:6px;padding-left:18px;display:flex;flex-direction:column;gap:4px">
+                <li>网页填写的 Key 仅保存在后端进程内存中（不写入文件），<b>重启后失效</b>；推荐写入本地 <code>.env</code> 的 <code>DEEPSEEK_API_KEY</code>。</li>
+                <li>测试连接提示「API Key 无效（HTTP 401）」＝ 当前 Key 已失效/填错，请重新填写有效 Key 并保存，或更新 <code>.env</code> 后重启服务。</li>
+                <li>Model ID 需为官方模型名：<code>deepseek-v4-flash</code> / <code>deepseek-v4-pro</code> / <code>deepseek-chat</code>。</li>
+              </ul>
             </div>
             <div class="grid gap-4">
               <article v-for="(m, i) in models" :key="m.id" class="config-card">
@@ -345,11 +521,11 @@
                 <div class="grid gap-3 md:grid-cols-3">
                   <div><label class="label">名称</label><input class="input" v-model="m.name" placeholder="如 DeepSeek V3"></div>
                   <div><label class="label">Base URL</label><input class="input" v-model="m.base_url" placeholder="https://api.deepseek.com/v1"></div>
-                  <div><label class="label">Model ID</label><input class="input" v-model="m.model" placeholder="deepseek-chat"></div>
+                  <div><label class="label">Model ID</label><input class="input" v-model="m.model" placeholder="deepseek-v4-flash / deepseek-v4-pro / deepseek-chat"></div>
                 </div>
                 <label class="label mt-3">API Key</label>
                 <div class="input-wrap">
-                  <input v-model="m.api_key" class="input" :type="showPassword ? 'text' : 'password'" placeholder="保存后显示为掩码，留空则使用环境变量" />
+                  <input v-model="m.api_key" class="input" :type="showPassword ? 'text' : 'password'" placeholder="留空则使用 .env / 内存中的 Key；输入新 Key 保存后立即生效" />
                   <button class="password-toggle" type="button" @click="showPassword = !showPassword">
                     <svg v-if="!showPassword" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                     <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
@@ -379,7 +555,7 @@
           </div>
           <div class="grid gap-3 md:grid-cols-2">
             <div><label class="label">基金代码</label><input v-model="holdingDraft.code" class="input" required @change="fetchDraftQuote"></div>
-            <div><label class="label">基金名称</label><input v-model="holdingDraft.name" class="input" placeholder="自动获取或手动输入"></div>
+            <div><label class="label">基金名称</label><input v-model="holdingDraft.name" class="input" placeholder="自动获取或手动输入"><span v-if="draftQuote" class="draft-source-hint" :class="{ warn: draftQuote.source === 'mock' }"><span class="source-dot" :class="draftQuote.source === 'mock' ? 'mock' : 'ok'"></span>{{ draftQuote.source === 'mock' ? '演示数据，请核对名称' : draftQuote.source === 'eastmoney-static' ? '名称来自基金资料（备用源）' : '名称已自动获取' }}</span></div>
             <div><label class="label">投资总成本</label><input v-model.number="holdingDraft.cost" class="input" type="number" min="0" step="0.01" required @input="calcDraftShares"></div>
             <div><label class="label">持有份额</label><input v-model.number="holdingDraft.shares" class="input" type="number" min="0" step="0.01" readonly></div>
             <div><label class="label">当前净值</label><input :value="draftQuote?.nav ? number(draftQuote.nav, 4) : '-'" class="input" readonly></div>
@@ -402,7 +578,44 @@
           <div class="mt-5 flex justify-end gap-2"><button type="button" class="btn btn-secondary" @click="showQuickPhraseModal = false">取消</button><button class="btn btn-primary">保存</button></div>
         </form>
       </div>
+
+      <!-- CSV Import Modal -->
+      <div v-if="importModal.show" class="modal-mask" @click.self="importModal.show = false">
+        <div class="modal-card import-modal">
+          <div class="modal-header">
+            <div><h2>导入持仓确认</h2><p>解析到 <strong style="color:var(--color-primary)">{{ importModal.items.length }}</strong> 条有效持仓（已自动跳过空行、# 注释行与无效代码行）</p></div>
+            <button type="button" class="close-btn" @click="importModal.show = false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+          </div>
+          <div v-if="importModal.items.length" class="import-preview">
+            <table>
+              <thead><tr><th>代码</th><th>名称</th><th>成本</th><th>份额</th><th>备注</th></tr></thead>
+              <tbody>
+                <tr v-for="(it, i) in importModal.items.slice(0, 5)" :key="i">
+                  <td>{{ it.code }}</td>
+                  <td>{{ it.name || '（自动获取）' }}</td>
+                  <td>{{ money(it.cost) }}</td>
+                  <td>{{ it.shares ? number(it.shares, 2) : '（自动计算）' }}</td>
+                  <td>{{ it.note || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="importModal.items.length > 5" class="data-meta">… 共 {{ importModal.items.length }} 条，仅预览前 5 条</p>
+          </div>
+          <div class="import-mode">
+            <label :class="{ active: importModal.mode === 'append' }">
+              <input type="radio" value="append" v-model="importModal.mode"> 追加到现有持仓（当前 {{ holdings.length }} 条）
+            </label>
+            <label :class="{ active: importModal.mode === 'replace' }">
+              <input type="radio" value="replace" v-model="importModal.mode"> 覆盖现有持仓（先清空再导入）
+            </label>
+          </div>
+          <div class="mt-5 flex justify-end gap-2">
+            <button class="btn btn-secondary" @click="importModal.show = false">取消</button>
+            <button class="btn btn-primary" :disabled="quotesLoading || savingPortfolio" @click="confirmImport">开始导入</button>
+          </div>
+        </div>
+      </div>
     </div>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=2.1"></script>
   </body>
 </html>

@@ -33,13 +33,50 @@ def _fallback_quote(fund_code: str) -> dict[str, Any] | None:
     }
 
 
+async def _fetch_pingzhong_quote(fund_code: str) -> dict[str, Any] | None:
+    """Backup source: Eastmoney static page data (name + latest NAV + daily return).
+
+    The pingzhongdata/{code}.js file exposes fS_name and Data_netWorthTrend.
+    Used when the realtime estimation endpoint (fundgz) is unavailable.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                EASTMONEY_DATA_URL.format(code=fund_code),
+                headers={"Referer": f"https://fund.eastmoney.com/{fund_code}.html"},
+            )
+            response.raise_for_status()
+        text = response.text
+        name_match = re.search(r'fS_name\s*=\s*"([^"]+)"', text)
+        trend_match = re.search(r"Data_netWorthTrend\s*=\s*(\[.*?\]);", text, re.S)
+        if not name_match or not trend_match:
+            return None
+        rows = json.loads(trend_match.group(1))
+        if not rows:
+            return None
+        latest = rows[-1]
+        nav = float(latest.get("y") or 0)
+        if nav <= 0:
+            return None
+        ts = int(latest.get("x", 0)) / 1000
+        return {
+            "name": name_match.group(1) or f"基金 {fund_code}",
+            "nav": nav,
+            "percent": float(latest.get("equityReturn") or 0),
+            "update_time": datetime.fromtimestamp(ts).strftime("%Y-%m-%d"),
+            "source": "eastmoney-static",
+        }
+    except Exception:
+        return None
+
+
 async def get_fund_realtime_async(fund_code: str) -> dict[str, Any] | None:
     """Fetch realtime fund data from Eastmoney's public JS endpoint.
 
-    The endpoint returns JavaScript like jsonpgz({...});. If the request fails,
-    a deterministic demo quote is returned so the app remains usable offline.
-    Replace this function with akshare or an internal data provider if stricter
-    production-grade market data is required.
+    The endpoint returns JavaScript like jsonpgz({...});. If that fails, the
+    static pingzhongdata page is used as a backup (name + latest NAV). Only when
+    both sources fail is a deterministic demo quote returned so the app stays
+    usable offline.
     """
     code = str(fund_code).strip()
     if not re.fullmatch(r"\d{6}", code):
@@ -53,22 +90,27 @@ async def get_fund_realtime_async(fund_code: str) -> dict[str, Any] | None:
             )
             response.raise_for_status()
         match = re.search(r"jsonpgz\((.*)\);?", response.text.strip())
-        if not match:
-            return _fallback_quote(code)
-        raw = json.loads(match.group(1))
-        nav = float(raw.get("gsz") or raw.get("dwjz") or 0)
-        percent = float(raw.get("gszzl") or 0)
-        if nav <= 0:
-            return _fallback_quote(code)
-        return {
-            "name": raw.get("name") or f"基金 {code}",
-            "nav": nav,
-            "percent": percent,
-            "update_time": raw.get("gztime") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "source": "eastmoney",
-        }
+        if match:
+            raw = json.loads(match.group(1))
+            nav = float(raw.get("gsz") or raw.get("dwjz") or 0)
+            percent = float(raw.get("gszzl") or 0)
+            name = (raw.get("name") or "").strip()
+            if nav > 0 and name:
+                return {
+                    "name": name,
+                    "nav": nav,
+                    "percent": percent,
+                    "update_time": raw.get("gztime") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "source": "eastmoney",
+                }
     except Exception:
-        return _fallback_quote(code)
+        pass
+
+    quote = await _fetch_pingzhong_quote(code)
+    if quote:
+        return quote
+
+    return _fallback_quote(code)
 
 
 async def get_fund_history_async(fund_code: str, days: int = 90) -> list[dict[str, Any]]:
