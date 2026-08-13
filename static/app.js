@@ -204,6 +204,11 @@ createApp({
   async mounted() {
     this.initTheme();
     this.loadConversations();
+    // 支持深链：https://host/#insights 直接打开对应页面
+    const hash = window.location.hash.replace("#", "");
+    if (hash && this.tabs.some((t) => t.id === hash)) {
+      this.activeTab = hash;
+    }
     await this.loadAll();
     this.startAutoRefresh();
   },
@@ -234,7 +239,10 @@ createApp({
   methods: {
     initTheme() {
       const saved = localStorage.getItem("fund-advisor-theme");
-      if (saved === "dark" || (!saved && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+      const urlTheme = new URLSearchParams(window.location.search).get("theme");
+      if (urlTheme === "dark" || urlTheme === "light") {
+        this.theme = urlTheme;
+      } else if (saved === "dark" || (!saved && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
         this.theme = "dark";
       }
       this.applyTheme();

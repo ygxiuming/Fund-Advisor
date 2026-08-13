@@ -36,6 +36,40 @@ DeepSeek 基金投资助手是一个本地运行的多 Agent AI 投资顾问 Web
 
 ---
 
+## 📸 功能截图
+
+| 页面 | 预览 |
+|------|------|
+| 持仓管理（亮色） | `docs/screenshots/portfolio-light.png` |
+| 洞察图表（亮色） | `docs/screenshots/insights-light.png` |
+| 暗色模式 | `docs/screenshots/portfolio-dark.png` |
+
+> 💡 截图待补充：按下方步骤截图后，将图片保存为对应文件名放入 `docs/screenshots/` 目录即可在 README 中自动展示。
+
+**截图步骤（Chrome / Edge）**：
+
+1. 启动服务：`python main.py`，浏览器打开 http://127.0.0.1:8000
+2. 洞察页直达：访问 `http://127.0.0.1:8000/#insights`（应用支持深链直达任意页面）
+3. 暗色模式直达：访问 `http://127.0.0.1:8000/?theme=dark`，或在左下角点击「暗色模式」
+4. 按 `F12` 打开开发者工具 → `Ctrl+Shift+P` → 输入 `screenshot` → 选择 **Capture full size screenshot**（整页截图）
+5. 按上表命名并保存到 `docs/screenshots/` 目录
+
+---
+
+## 🌐 在线预览
+
+本项目是本地运行的 Web 应用（零数据库、零外部依赖），支持三种访问方式：
+
+| 方式 | 说明 |
+|------|------|
+| **本机预览** | `python main.py` 后访问 http://127.0.0.1:8000 |
+| **局域网访问** | 启动时终端会打印局域网地址（如 `http://192.168.x.x:8000`），同一 Wi-Fi/内网设备可直接访问，适合手机预览 |
+| **公网临时分享** | 使用内网穿透工具将 8000 端口映射到公网，即可分享链接在线体验（含 AI 对话）：<br>`cpolar http 8000` 或 `ngrok http 8000` |
+
+> ⚠️ 公网分享时请勿将含真实 API Key 的页面暴露给不信任的人；AI 对话密钥保存在服务端 `.env` 中，不会下发到浏览器。
+
+---
+
 ## 👥 多 Agent 设计
 
 ### 灵感来源
@@ -203,7 +237,8 @@ fund-advisor/
 - ✨ 后端对 V4 系列模型自动提升输出额度下限（≥4096），旧配置无需修改即可恢复正常回复
 - 🐛 流式解析容错：处理 choices 为空的事件，避免流中断
 - ✨ Agent 默认 Max Tokens 提升至 4000/3500；空回复时给出明确原因与处理指引
-- 📝 README 更新为官方模型名 `deepseek-v4-flash`
+- ✨ 支持深链直达页面：`/#insights`、`/?theme=dark`（便于分享与截图）
+- 📝 README 更新为官方模型名 `deepseek-v4-flash`，新增功能截图指引与在线预览说明
 
 ### v1.7.2（模型接口诊断与容错）
 
