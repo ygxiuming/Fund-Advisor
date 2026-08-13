@@ -38,21 +38,25 @@ DeepSeek 基金投资助手是一个本地运行的多 Agent AI 投资顾问 Web
 
 ## 📸 功能截图
 
-| 页面 | 预览 |
-|------|------|
-| 持仓管理（亮色） | `docs/screenshots/portfolio-light.png` |
-| 洞察图表（亮色） | `docs/screenshots/insights-light.png` |
-| 暗色模式 | `docs/screenshots/portfolio-dark.png` |
+**持仓管理（亮色模式）**
 
-> 💡 截图待补充：按下方步骤截图后，将图片保存为对应文件名放入 `docs/screenshots/` 目录即可在 README 中自动展示。
+<img src="docs/screenshots/portfolio-light.png" alt="持仓管理（亮色）" width="820"/>
 
-**截图步骤（Chrome / Edge）**：
+**洞察图表（亮色模式）** — 组合诊断条 · 盈亏曲线 · 资产分布 · 收益贡献 · 风险评级 · 持仓推荐
 
-1. 启动服务：`python main.py`，浏览器打开 http://127.0.0.1:8000
-2. 洞察页直达：访问 `http://127.0.0.1:8000/#insights`（应用支持深链直达任意页面）
-3. 暗色模式直达：访问 `http://127.0.0.1:8000/?theme=dark`，或在左下角点击「暗色模式」
-4. 按 `F12` 打开开发者工具 → `Ctrl+Shift+P` → 输入 `screenshot` → 选择 **Capture full size screenshot**（整页截图）
-5. 按上表命名并保存到 `docs/screenshots/` 目录
+<img src="docs/screenshots/insights-light.png" alt="洞察图表（亮色）" width="820"/>
+
+**暗色模式**
+
+<img src="docs/screenshots/portfolio-dark.png" alt="暗色模式" width="820"/>
+
+> 以上截图由真实运行界面生成。如需自行重新截图，步骤如下：
+>
+> 1. 启动服务：`python main.py`，浏览器打开 http://127.0.0.1:8000
+> 2. 洞察页直达：访问 `http://127.0.0.1:8000/#insights`（应用支持深链直达任意页面）
+> 3. 暗色模式直达：访问 `http://127.0.0.1:8000/?theme=dark`，或在左下角点击「暗色模式」
+> 4. 按 `F12` 打开开发者工具 → `Ctrl+Shift+P` → 输入 `screenshot` → 选择 **Capture full size screenshot**（整页截图）
+> 5. 保存到 `docs/screenshots/` 目录并保持文件名：`portfolio-light.png` / `insights-light.png` / `portfolio-dark.png`
 
 ---
 
